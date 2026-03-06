@@ -252,7 +252,21 @@ async function executeUploadFlow(client: ReturnType<typeof createFeishuClient>):
   if (!documentId) {
     console.log('⚠️  未从 front-matter 读取到 feishu_doc_id');
     const url = await promptUploadDocumentUrl();
-    documentId = parseDocumentId(url);
+    const token = parseDocumentId(url);
+
+    // wiki 链接需要先获取实际的文档 ID (obj_token)
+    if (url.includes('/wiki/')) {
+      console.log('');
+      console.log('🔍 从知识库节点获取文档信息...');
+      const nodeInfo = await getWikiNodeInfo(client, token);
+      if (nodeInfo.objType !== 'docx' && nodeInfo.objType !== 'doc') {
+        throw new Error(`不支持的文档类型: ${nodeInfo.objType}，仅支持 docx 类型的文档`);
+      }
+      console.log(`   文档标题: ${nodeInfo.title}`);
+      documentId = nodeInfo.objToken;
+    } else {
+      documentId = token;
+    }
   }
 
   const { blocks: uploadBlocks } = parseMarkdownToBlocks(body);
@@ -278,17 +292,18 @@ async function executeUploadFlow(client: ReturnType<typeof createFeishuClient>):
 }
 
 /**
- * 提示用户输入上传目标文档链接（仅支持 docx）
+ * 提示用户输入上传目标文档链接（支持 docx 和 wiki）
  */
 async function promptUploadDocumentUrl(): Promise<string> {
   const { url } = await inquirer.prompt([
     {
       type: 'input',
       name: 'url',
-      message: '请输入目标飞书文档链接（仅支持 /docx/）:',
+      message: '请输入目标飞书文档链接（支持 /docx/ 和 /wiki/）:',
       validate: (input: string) => {
         if (!input.trim()) return '文档链接不能为空';
-        if (!input.includes('/docx/')) return '上传仅支持 docx 文档链接（需包含 /docx/）';
+        if (!input.includes('/docx/') && !input.includes('/wiki/'))
+          return '请输入有效的飞书文档链接（需包含 /docx/ 或 /wiki/）';
         return true;
       },
     },

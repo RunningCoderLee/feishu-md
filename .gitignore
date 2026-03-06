@@ -4,3 +4,4 @@ dist
 dist-bin
 *.bun-build
 *.tsbuildinfo
+.history

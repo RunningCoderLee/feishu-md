@@ -52,3 +52,5 @@ pnpm typecheck    # 类型检查
 - 配置文件 `.feishurc` 包含敏感凭证，不要提交到版本控制
 - 飞书 API 有速率限制，批量操作时注意控制请求频率
 - 上传采用全量替换策略：先清空远端内容再重建
+- Mermaid 图表通过飞书文档小组件 (block_type=40, add_ons) 实现，component_type_id 为 `blk_631fefbbae02400430b8f9f4`
+- 上传支持 docx 和 wiki 两种链接格式；wiki 链接需先通过 `getWikiNodeInfo` 获取实际文档 ID (objToken)

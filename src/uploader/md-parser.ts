@@ -20,6 +20,11 @@ export interface TableData {
   cells: TableCellContent[][];
 }
 
+export interface AddOnsData {
+  component_type_id: string;
+  record: string;
+}
+
 export interface FeishuUploadBlock {
   block_type: BlockType;
   text?: BlockContent;
@@ -36,12 +41,16 @@ export interface FeishuUploadBlock {
   callout?: BlockContent;
   image?: ImageContent;
   table_data?: TableData;
+  add_ons?: AddOnsData;
 }
 
 // ============ 常量 ============
 
 const IMAGE_LINE_REGEX = /^!\[[^\]]*\]\(feishu-image:([^)\s]+)\)$/;
 const INLINE_TOKEN_REGEX = /(\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^)]+\))/;
+
+/** 飞书文本绘图（Mermaid）小组件的 component_type_id */
+const MERMAID_COMPONENT_TYPE_ID = 'blk_631fefbbae02400430b8f9f4';
 
 const HEADING_BLOCK_TYPES: Record<number, { type: BlockType; field: string }> = {
   1: { type: BlockType.HEADING1, field: 'heading1' },
@@ -151,11 +160,27 @@ function parseCodeBlock(
     i++;
   }
 
+  const content = codeLines.join('\n');
+
+  // Mermaid 代码块 → 文档小组件 (add_ons)
+  if (language.toLowerCase() === 'mermaid') {
+    return {
+      block: {
+        block_type: BlockType.ADD_ONS,
+        add_ons: {
+          component_type_id: MERMAID_COMPONENT_TYPE_ID,
+          record: JSON.stringify({ view: 'codeChart', data: content, theme: 'default' }),
+        },
+      },
+      endIndex: i,
+    };
+  }
+
   return {
     block: {
       block_type: BlockType.CODE,
       code: {
-        elements: [{ text_run: { content: codeLines.join('\n') } }],
+        elements: [{ text_run: { content } }],
         style: { language: getLanguageCode(language) },
       },
     },
