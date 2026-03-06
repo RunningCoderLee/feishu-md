@@ -6,6 +6,7 @@ import { clearDocumentBlocks, createDocumentBlocks, getDocumentRootInfo } from '
 import { getWikiNodeInfo, getWikiNodeTree, type WikiTreeNode } from './api/wiki.js';
 import {
   type FeishuConfig,
+  getConfigInfo,
   loadConfig,
   loadLastOutputPath,
   saveConfig,
@@ -195,7 +196,7 @@ async function promptDownloadMode(): Promise<'single' | 'recursive' | 'flat'> {
 /**
  * 提示用户选择操作类型
  */
-async function promptActionMode(): Promise<'download' | 'upload'> {
+async function promptActionMode(): Promise<'download' | 'upload' | 'config'> {
   const { actionMode } = await inquirer.prompt([
     {
       type: 'select',
@@ -204,6 +205,7 @@ async function promptActionMode(): Promise<'download' | 'upload'> {
       choices: [
         { name: '📥 下载飞书文档到本地', value: 'download' },
         { name: '📤 上传本地 Markdown 到飞书', value: 'upload' },
+        { name: '⚙️  查看/修改配置', value: 'config' },
       ],
     },
   ]);
@@ -447,10 +449,15 @@ export async function runInteractive() {
   console.log('');
 
   try {
+    const actionMode = await promptActionMode();
+    if (actionMode === 'config') {
+      await executeConfigFlow();
+      return;
+    }
+
     const config = await ensureConfig();
     const client = createFeishuClient(config.appId, config.appSecret);
 
-    const actionMode = await promptActionMode();
     if (actionMode === 'upload') {
       await executeUploadFlow(client);
       return;
@@ -501,6 +508,69 @@ export async function runInteractive() {
     }
     process.exit(1);
   }
+}
+
+/**
+ * 脱敏显示密钥（保留前 4 位和后 4 位）
+ */
+function maskSecret(secret: string): string {
+  if (secret.length <= 8) return '****';
+  return `${secret.slice(0, 4)}${'*'.repeat(secret.length - 8)}${secret.slice(-4)}`;
+}
+
+/**
+ * 配置管理流程
+ */
+async function executeConfigFlow(): Promise<void> {
+  const { config, path } = getConfigInfo();
+
+  console.log('');
+  console.log('⚙️  当前配置');
+  console.log(`   配置文件: ${path}`);
+
+  if (config) {
+    console.log(`   App ID:     ${config.appId}`);
+    console.log(`   App Secret: ${maskSecret(config.appSecret)}`);
+  } else {
+    console.log('   状态: 未配置');
+  }
+  console.log('');
+
+  const { action } = await inquirer.prompt([
+    {
+      type: 'select',
+      name: 'action',
+      message: '请选择操作:',
+      choices: [
+        { name: '✏️  修改配置', value: 'edit' },
+        { name: '↩️  返回主菜单', value: 'back' },
+      ],
+    },
+  ]);
+
+  if (action === 'back') {
+    await runInteractive();
+    return;
+  }
+
+  const answers = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'appId',
+      message: '飞书 App ID:',
+      default: config?.appId,
+      validate: (input: string) => (input.trim() ? true : 'App ID 不能为空'),
+    },
+    {
+      type: 'password',
+      name: 'appSecret',
+      message: '飞书 App Secret:',
+      mask: '*',
+      validate: (input: string) => (input.trim() ? true : 'App Secret 不能为空'),
+    },
+  ]);
+
+  saveConfig({ appId: answers.appId.trim(), appSecret: answers.appSecret.trim() });
 }
 
 /**

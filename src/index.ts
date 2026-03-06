@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
-import dotenv from 'dotenv';
 import pkg from '../package.json' with { type: 'json' };
 import { runInteractive } from './interactive.js';
-
-dotenv.config();
 
 program
   .name('feishu-md')

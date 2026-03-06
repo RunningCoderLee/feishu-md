@@ -34,7 +34,7 @@ function getHomeConfigPath(): string {
 /**
  * 从配置文件加载凭证
  *
- * 优先级: 项目目录向上查找 > 用户主目录 > 环境变量
+ * 优先级: 项目目录向上查找 > 用户主目录
  */
 export function loadConfig(): FeishuConfig | null {
   // 1. 从当前目录向上查找
@@ -55,14 +55,6 @@ export function loadConfig(): FeishuConfig | null {
       console.log(`📂 使用配置: ${homePath}`);
       return config;
     }
-  }
-
-  // 3. 环境变量
-  const appId = process.env.FEISHU_APP_ID;
-  const appSecret = process.env.FEISHU_APP_SECRET;
-  if (appId && appSecret) {
-    console.log('📂 使用环境变量配置');
-    return { appId, appSecret };
   }
 
   return null;
@@ -126,4 +118,23 @@ function parseConfigFile(path: string): FeishuConfig | null {
     // 忽略解析错误
   }
   return null;
+}
+
+/**
+ * 获取当前生效的配置信息（含路径）
+ */
+export function getConfigInfo(): { config: FeishuConfig | null; path: string } {
+  const foundConfig = findConfigUp(process.cwd(), CONFIG_FILENAME);
+  if (foundConfig) {
+    const config = parseConfigFile(foundConfig);
+    if (config) return { config, path: foundConfig };
+  }
+
+  const homePath = getHomeConfigPath();
+  if (existsSync(homePath)) {
+    const config = parseConfigFile(homePath);
+    if (config) return { config, path: homePath };
+  }
+
+  return { config: null, path: getHomeConfigPath() };
 }
