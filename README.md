@@ -100,6 +100,15 @@ pnpm dev
 # 构建
 pnpm build
 
+# 代码检查与格式化
+pnpm lint          # 检查
+pnpm lint:fix      # 自动修复
+pnpm format        # 格式化
+
+# 测试与类型检查
+pnpm test          # 运行测试
+pnpm typecheck     # 类型检查
+
 # 编译为独立二进制（用于分发给团队成员）
 pnpm build:bin
 # 产物在 dist-bin/feishu-md
@@ -107,3 +116,18 @@ pnpm build:bin
 # 更新全局 CLI（修改代码后）
 bash install.sh
 ```
+
+### 技术栈
+
+- TypeScript (strict mode, ES2022, ESM)
+- pnpm 包管理，tsc 构建，bun build 编译独立二进制
+- Biome (lint + format)，Husky + lint-staged + commitlint (Conventional Commits)
+- vitest 测试框架
+
+### 实现细节
+
+- **飞书 API 限速**: 所有 API 调用内置节流 (~2.8 次/秒) 与指数退避重试 (最多 3 次)
+- **上传策略**: 全量替换 — 清空远端文档所有子块后重建，不做增量 diff
+- **Mermaid 图表**: 通过飞书文档小组件 (block_type=40, add_ons) 实现，而非代码块
+- **wiki 链接**: wiki URL 中的 token 是 node_token，需通过 `getWikiNodeInfo` API 获取实际的 document_id (objToken) 才能操作文档内容
+- **表格上传**: 使用嵌套块 API (`documentBlockDescendant.create`)，不受普通 API 9 行限制

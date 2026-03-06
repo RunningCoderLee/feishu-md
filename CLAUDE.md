@@ -1,56 +1,65 @@
 # CLAUDE.md
 
-## 项目概述
-
-feishu-md 是一个飞书知识库文档与本地 Markdown 文件的双向同步 CLI 工具，使用 TypeScript 编写。
-
-## 技术栈
-
-- **运行时**: Node.js (>=16), ESM
-- **语言**: TypeScript (strict mode, ES2022)
-- **包管理**: pnpm
-- **构建**: tsc (发布), bun build (独立二进制)
-- **代码质量**: Biome (lint + format), Husky + lint-staged + commitlint
+飞书知识库文档与本地 Markdown 双向同步 CLI 工具，TypeScript + ESM。
 
 ## 项目结构
 
 ```
 src/
   index.ts          # CLI 入口 (commander)
-  config.ts         # 配置管理 (.feishurc / 环境变量)
-  interactive.ts    # 交互式流程编排
-  api/              # 飞书 API 客户端 (@larksuiteoapi/node-sdk)
-  converter/        # 飞书文档块 ↔ Markdown 转换
+  config.ts         # 配置管理 (.feishurc)
+  interactive/      # 交互式流程编排
+    index.ts        #   主入口、错误处理
+    config.ts       #   配置管理流程
+    download.ts     #   下载流程
+    upload.ts       #   上传流程
+  api/              # 飞书 API 封装
+  converter/        # 飞书文档块 → Markdown
+  uploader/         # Markdown → 飞书文档块
   parser/           # URL 解析
-  uploader/         # Markdown 上传 (front-matter, md-parser)
   types/            # 类型定义
   utils/            # 工具函数
 ```
 
-## 常用命令
+## 命令
 
 ```bash
-pnpm dev          # 开发模式运行
-pnpm build        # TypeScript 编译
-pnpm build:bin    # 编译独立二进制 (bun)
-pnpm lint         # 代码检查 (biome)
+pnpm dev          # 开发运行
+pnpm build        # 编译
+pnpm lint         # 检查
 pnpm lint:fix     # 自动修复
-pnpm format       # 格式化
-pnpm test         # 运行测试
+pnpm test         # 测试
 pnpm typecheck    # 类型检查
 ```
 
-## 代码规范
+## 编码约束
 
-- 使用 Biome 进行 lint 和格式化 (2 空格缩进, 100 字符行宽, 单引号, 尾逗号)
-- 提交信息遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范
+### 风格
+
+- Biome: 2 空格缩进, 100 字符行宽, 单引号, 尾逗号
+- Conventional Commits, Husky + lint-staged + commitlint
 - 路径别名: `@/*` → `./src/*`
-- Git hooks: pre-commit 运行 lint-staged, commit-msg 运行 commitlint
+- 修改代码前先运行 `pnpm lint` 和 `pnpm typecheck` 确认基线无误
 
-## 注意事项
+### 设计原则
 
-- 配置文件 `.feishurc` 包含敏感凭证，不要提交到版本控制
-- 飞书 API 有速率限制，批量操作时注意控制请求频率
-- 上传采用全量替换策略：先清空远端内容再重建
-- Mermaid 图表通过飞书文档小组件 (block_type=40, add_ons) 实现，component_type_id 为 `blk_631fefbbae02400430b8f9f4`
-- 上传支持 docx 和 wiki 两种链接格式；wiki 链接需先通过 `getWikiNodeInfo` 获取实际文档 ID (objToken)
+- **单一职责**: 每个文件/函数只做一件事。`interactive/` 按流程拆分就是典型示例
+- **开闭原则**: 新增 block 类型时扩展 converter 和 uploader 的映射，不改已有分支
+- **依赖倒置**: 业务逻辑依赖抽象接口 (如 `lark.Client` 类型)，不直接构造 SDK 实例
+- **高内聚低耦合**: 模块内部自包含，模块间通过明确的导出接口通信；避免循环依赖
+- **DRY**: 相似模式抽公共函数 (如 `createSimpleBlock`、`withRetry`)，但不为只用一次的逻辑建抽象
+
+### 编码规则
+
+- 先读后改: 修改文件前必须先读取理解上下文
+- 最小变更: 只改需要改的，不顺手重构无关代码
+- 不加冗余: 不添加用不到的错误处理、配置项、注释、类型注解
+- 不留痕迹: 删除代码就彻底删，不留 `// removed` 或无用的重导出
+- 安全优先: `.feishurc` 含敏感凭证，绝不提交到版本控制；展示时脱敏
+
+### 飞书 API 注意
+
+- 速率限制 ~3 次/秒，所有 API 调用走 `withRetry` + `throttle`
+- 上传采用全量替换: 清空 → 重建，不做增量 diff
+- Mermaid 用文档小组件 (block_type=40)，`component_type_id` = `blk_631fefbbae02400430b8f9f4`
+- wiki 链接含 node_token 而非 document_id，需 `getWikiNodeInfo` 转换
