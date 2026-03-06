@@ -27,12 +27,13 @@ export enum BlockType {
   CODE = 14,
   QUOTE = 15,
   TODO = 17,
-  DIVIDER = 19,
+  CALLOUT = 19,
+  DIVIDER = 22,
   IMAGE = 27,
   TABLE = 31,
   TABLE_CELL = 32,
   VIEW = 33,
-  CALLOUT = 37,
+  QUOTE_CONTAINER = 34,
   ADD_ONS = 40,
 }
 
@@ -215,8 +216,11 @@ function processChildren(
       lines.push(markdown);
     }
 
-    // 递归处理子块 (除了表格单元格,它们在表格块中统一处理)
-    if (block.block_type !== BlockType.TABLE_CELL) {
+    // 递归处理子块 (除了表格单元格和引用容器,它们在各自的块中统一处理)
+    if (
+      block.block_type !== BlockType.TABLE_CELL &&
+      block.block_type !== BlockType.QUOTE_CONTAINER
+    ) {
       processChildren(block, blockMap, lines, depth + 1);
     }
   }
@@ -288,6 +292,9 @@ function convertBlock(
     case BlockType.CALLOUT:
       return `> 💡 ${getTextContent(block)}`;
 
+    case BlockType.QUOTE_CONTAINER:
+      return convertQuoteContainer(block, blockMap, depth);
+
     case BlockType.ADD_ONS:
       return convertAddOnsBlock(block);
 
@@ -295,6 +302,36 @@ function convertBlock(
       // 未知类型,尝试提取文本
       return getTextContent(block) || '';
   }
+}
+
+/**
+ * 转换引用容器块 (quote_container)
+ * 引用容器是一个包裹子块的容器，子块转换后每行加 `> ` 前缀
+ */
+function convertQuoteContainer(
+  block: FeishuBlock,
+  blockMap: Map<string, FeishuBlock>,
+  depth: number,
+): string {
+  const children = block.children || [];
+  const lines: string[] = [];
+
+  for (const childId of children) {
+    const child = blockMap.get(childId);
+    if (!child) continue;
+    const markdown = convertBlock(child, blockMap, depth);
+    if (markdown) {
+      // 多行内容（如代码块）每行都加 > 前缀
+      lines.push(
+        markdown
+          .split('\n')
+          .map((l) => `> ${l}`)
+          .join('\n'),
+      );
+    }
+  }
+
+  return lines.join('\n');
 }
 
 /**

@@ -12,6 +12,7 @@ import { getWikiNodeInfo } from '../api/wiki.js';
 import { parseDocumentId } from '../parser/url-parser.js';
 import { parseFrontMatter } from '../uploader/front-matter.js';
 import { parseMarkdownToBlocks } from '../uploader/md-parser.js';
+import { dumpDebugJson, isDebug } from '../utils/debug.js';
 
 // ============ Prompt ============
 
@@ -147,6 +148,10 @@ export async function executeUploadFlow(
   }
 
   const { blocks: uploadBlocks, title: localTitle } = parseMarkdownToBlocks(body);
+
+  if (isDebug()) {
+    dumpDebugJson(`upload-blocks-${documentId}.json`, uploadBlocks);
+  }
 
   const fileBaseName = absolutePath.replace(/^.*[\\/]/, '').replace(/\.md$/i, '');
 

@@ -18,7 +18,7 @@ src/
   uploader/         # Markdown → 飞书文档块
   parser/           # URL 解析
   types/            # 类型定义
-  utils/            # 工具函数
+  utils/            # 工具函数 (文件操作、调试日志)
 ```
 
 ## 命令
@@ -62,4 +62,5 @@ pnpm typecheck    # 类型检查
 - 速率限制 ~3 次/秒，所有 API 调用走 `withRetry` + `throttle`
 - 上传采用全量替换: 清空 → 重建，不做增量 diff
 - Mermaid 用文档小组件 (block_type=40)，`component_type_id` = `blk_631fefbbae02400430b8f9f4`
+- 引用容器 (block_type=34, quote_container) 是容器块，子块用嵌套块 API 创建
 - wiki 链接含 node_token 而非 document_id，需 `getWikiNodeInfo` 转换

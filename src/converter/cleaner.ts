@@ -41,8 +41,10 @@ export function cleanMarkdown(content: string): string {
   cleaned = cleaned.replace(EMOJI_REGEX, '');
 
   // 2. 清理 emoji 删除后留下的多余空格
-  cleaned = cleaned.replace(/(\*\*|\*|~~)[ \t]+(?!\|)/g, '$1'); // 开始标记后的空格(但不在 | 前)
-  cleaned = cleaned.replace(/(?<!\||#| )[ \t]+(\*\*|\*|~~)/g, '$1'); // 结束标记前的空格(但不在 | 或 # 或空格后)
+  // 开始标记后的空格: **_text → **text（开始标记前必须是行首或空白）
+  cleaned = cleaned.replace(/(?<=^|\s)(\*\*|\*|~~)[ \t]+/gm, '$1');
+  // 结束标记前的空格: text_** → text**（结束标记后必须是行末、空白或标点）
+  cleaned = cleaned.replace(/[ \t]+(\*\*|\*|~~)(?=$|\s|[).,;:!?，。；：！？])/gm, '$1');
 
   // 3. 修复格式标记与标题/列表标记之间缺失的空格
   cleaned = cleaned.replace(/^(#{1,6})\*\*/gm, '$1 **');

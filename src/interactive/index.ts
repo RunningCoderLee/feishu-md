@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
 import { createFeishuClient } from '../api/client.js';
+import { getDebugDir, isDebug } from '../utils/debug.js';
 import { ensureConfig, executeConfigFlow } from './config.js';
 import { executeDownloadFlow } from './download.js';
 import { executeUploadFlow } from './upload.js';
@@ -66,8 +67,18 @@ export async function runInteractive() {
     console.error('\n❌ 操作失败:');
     if (error instanceof Error) {
       console.error(`   ${error.message}`);
+    } else if (Array.isArray(error)) {
+      // 飞书 SDK 可能抛出嵌套数组格式的错误
+      try {
+        console.error(JSON.stringify(error, null, 2));
+      } catch {
+        console.error(`   ${String(error)}`);
+      }
     } else {
       console.error(`   ${String(error)}`);
+    }
+    if (isDebug()) {
+      console.error(`\n📂 调试日志目录: ${getDebugDir()}`);
     }
     process.exit(1);
   }

@@ -25,6 +25,10 @@ export interface AddOnsData {
   record: string;
 }
 
+export interface QuoteContainerData {
+  children: FeishuUploadBlock[];
+}
+
 export interface FeishuUploadBlock {
   block_type: BlockType;
   text?: BlockContent;
@@ -39,9 +43,12 @@ export interface FeishuUploadBlock {
   code?: CodeContent;
   quote?: BlockContent;
   callout?: BlockContent;
+  divider?: Record<string, never>;
   image?: ImageContent;
   table_data?: TableData;
   add_ons?: AddOnsData;
+  quote_container?: Record<string, never>;
+  quote_container_data?: QuoteContainerData;
 }
 
 // ============ 常量 ============
@@ -253,6 +260,82 @@ function parseTableBlock(
   };
 }
 
+// ============ 引用容器解析 ============
+
+/**
+ * 收集连续的 `> ` 行，去掉前缀后解析内部内容为子块，
+ * 整体包装为 quote_container (block_type=34)
+ */
+function parseQuoteContainerBlock(
+  lines: string[],
+  startIndex: number,
+): { block: FeishuUploadBlock; endIndex: number } {
+  const innerLines: string[] = [];
+  let i = startIndex;
+
+  // 收集连续的 > 行（包括空的 > 行）
+  while (i < lines.length) {
+    const line = lines[i] || '';
+    const trimmed = line.trim();
+    if (trimmed.startsWith('>')) {
+      // 去掉 > 前缀，保留内部内容
+      const inner = trimmed.replace(/^>\s?/, '');
+      innerLines.push(inner);
+      i++;
+    } else {
+      break;
+    }
+  }
+
+  // 将内部行解析为子块
+  const children = parseInnerBlocks(innerLines);
+
+  return {
+    block: {
+      block_type: BlockType.QUOTE_CONTAINER,
+      quote_container: {},
+      quote_container_data: { children },
+    },
+    endIndex: i - 1,
+  };
+}
+
+/**
+ * 解析引用容器内部的行为子块列表（复用主解析逻辑，但不跳过标题）
+ */
+function parseInnerBlocks(lines: string[]): FeishuUploadBlock[] {
+  const blocks: FeishuUploadBlock[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] || '';
+    const trimmed = line.trim();
+
+    if (!trimmed) continue;
+
+    const bulletMatch = line.match(/^\s*[-*+]\s+(.*)$/);
+    if (bulletMatch) {
+      blocks.push(createSimpleBlock(BlockType.BULLET, 'bullet', bulletMatch[1] || ''));
+      continue;
+    }
+
+    const orderedMatch = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (orderedMatch) {
+      blocks.push(createSimpleBlock(BlockType.ORDERED, 'ordered', orderedMatch[1] || ''));
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      blocks.push(createHeadingBlock(headingMatch[1].length, headingMatch[2] || ''));
+      continue;
+    }
+
+    blocks.push(createSimpleBlock(BlockType.TEXT, 'text', line));
+  }
+
+  return blocks;
+}
+
 // ============ 主解析函数 ============
 
 export interface ParseMarkdownResult {
@@ -292,7 +375,7 @@ export function parseMarkdownToBlocks(markdown: string): ParseMarkdownResult {
     }
 
     if (trimmed === '---') {
-      blocks.push({ block_type: BlockType.DIVIDER });
+      blocks.push({ block_type: BlockType.DIVIDER, divider: {} });
       continue;
     }
 
@@ -323,9 +406,10 @@ export function parseMarkdownToBlocks(markdown: string): ParseMarkdownResult {
       continue;
     }
 
-    const quoteMatch = trimmed.match(/^>\s*(.*)$/);
-    if (quoteMatch) {
-      blocks.push(createSimpleBlock(BlockType.QUOTE, 'quote', quoteMatch[1] || ''));
+    if (trimmed.startsWith('>')) {
+      const { block, endIndex } = parseQuoteContainerBlock(lines, i);
+      blocks.push(block);
+      i = endIndex;
       continue;
     }
 

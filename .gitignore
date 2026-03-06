@@ -5,3 +5,9 @@ dist-bin
 *.bun-build
 *.tsbuildinfo
 .history
+.feishurc
+
+# 调试产物
+blocks-*.json
+upload-blocks-*.json
+error.txt

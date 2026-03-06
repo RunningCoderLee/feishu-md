@@ -20,7 +20,7 @@
 | 元素 | 下载 | 上传 | 备注 |
 |------|------|------|------|
 | 标题（H1-H6） | ✅ | ✅ | |
-| 正文、引用、高亮块（Callout） | ✅ | ✅ | |
+| 正文、引用容器、高亮块（Callout） | ✅ | ✅ | 引用容器支持嵌套列表等子块 |
 | 有序/无序列表（支持嵌套） | ✅ | ✅ | |
 | 代码块（67 种语言） | ✅ | ✅ | |
 | 表格 | ✅ | ✅ | 使用嵌套块 API，不受 9 行限制 |
@@ -55,6 +55,12 @@ bash install.sh
 
 ```bash
 feishu-md
+```
+
+调试模式（报错时保留日志到系统临时目录，重启自动清理）：
+
+```bash
+feishu-md --debug
 ```
 
 交互流程：
@@ -131,3 +137,4 @@ bash install.sh
 - **Mermaid 图表**: 通过飞书文档小组件 (block_type=40, add_ons) 实现，而非代码块
 - **wiki 链接**: wiki URL 中的 token 是 node_token，需通过 `getWikiNodeInfo` API 获取实际的 document_id (objToken) 才能操作文档内容
 - **表格上传**: 使用嵌套块 API (`documentBlockDescendant.create`)，不受普通 API 9 行限制
+- **引用容器**: 飞书引用块 (block_type=34, quote_container) 是容器块，子块可包含文本、列表等，使用嵌套块 API 创建
