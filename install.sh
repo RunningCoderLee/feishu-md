@@ -7,7 +7,7 @@ BIN_NAME="feishu-md"
 echo "🚀 安装飞书文档转 Markdown 工具..."
 echo ""
 
-# 定位到 feishu-md-cli 目录
+# 定位到项目目录
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
