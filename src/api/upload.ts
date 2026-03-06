@@ -54,12 +54,12 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
 // ============ API 操作 ============
 
 /**
- * 获取文档根块 ID 和子块数量
+ * 获取文档根块 ID、子块数量和当前标题
  */
 export async function getDocumentRootInfo(
   client: lark.Client,
   documentId: string,
-): Promise<{ rootBlockId: string; childCount: number }> {
+): Promise<{ rootBlockId: string; childCount: number; title: string }> {
   try {
     const blocks = await getDocumentBlocks(client, documentId);
     const pageBlock = blocks.find((item: any) => item.block_type === BlockType.PAGE);
@@ -71,13 +71,56 @@ export async function getDocumentRootInfo(
       throw new Error('未找到文档根块 ID');
     }
 
+    // 从 page block 的 elements 中提取标题文本
+    const elements = pageBlock.page?.elements || [];
+    const title = elements
+      .filter((el: any) => el.text_run)
+      .map((el: any) => el.text_run.content || '')
+      .join('');
+
     return {
       rootBlockId: pageBlock.block_id,
       childCount: pageBlock.children?.length || 0,
+      title,
     };
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(`获取文档根块失败: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * 更新文档标题（修改 Page Block 的文本内容）
+ */
+export async function updateDocumentTitle(
+  client: lark.Client,
+  documentId: string,
+  rootBlockId: string,
+  title: string,
+): Promise<void> {
+  try {
+    const response = await withRetry(() =>
+      client.docx.documentBlock.patch({
+        path: {
+          document_id: documentId,
+          block_id: rootBlockId,
+        },
+        data: {
+          update_text_elements: {
+            elements: [{ text_run: { content: title } }],
+          },
+        },
+      }),
+    );
+
+    if (response.code !== 0) {
+      throw new Error(`更新文档标题失败: ${response.msg} (code: ${response.code})`);
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`更新文档标题失败: ${error.message}`);
     }
     throw error;
   }

@@ -257,6 +257,8 @@ function parseTableBlock(
 
 export interface ParseMarkdownResult {
   blocks: FeishuUploadBlock[];
+  /** 从 Markdown 中提取的第一个一级标题（文档标题） */
+  title: string | null;
 }
 
 /**
@@ -267,6 +269,7 @@ export function parseMarkdownToBlocks(markdown: string): ParseMarkdownResult {
   const blocks: FeishuUploadBlock[] = [];
   const lines = markdown.split(/\r?\n/);
   let skippedTitle = false;
+  let title: string | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] || '';
@@ -306,6 +309,7 @@ export function parseMarkdownToBlocks(markdown: string): ParseMarkdownResult {
 
       if (!skippedTitle && level === 1) {
         skippedTitle = true;
+        title = text;
         continue;
       }
 
@@ -340,5 +344,5 @@ export function parseMarkdownToBlocks(markdown: string): ParseMarkdownResult {
     blocks.push(createSimpleBlock(BlockType.TEXT, 'text', line));
   }
 
-  return { blocks };
+  return { blocks, title };
 }

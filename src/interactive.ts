@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import inquirer from 'inquirer';
 import { createFeishuClient } from './api/client.js';
-import { clearDocumentBlocks, createDocumentBlocks, getDocumentRootInfo } from './api/upload.js';
+import {
+  clearDocumentBlocks,
+  createDocumentBlocks,
+  getDocumentRootInfo,
+  updateDocumentTitle,
+} from './api/upload.js';
 import { getWikiNodeInfo, getWikiNodeTree, type WikiTreeNode } from './api/wiki.js';
 import {
   type FeishuConfig,
@@ -271,11 +276,25 @@ async function executeUploadFlow(client: ReturnType<typeof createFeishuClient>):
     }
   }
 
-  const { blocks: uploadBlocks } = parseMarkdownToBlocks(body);
+  const { blocks: uploadBlocks, title: localTitle } = parseMarkdownToBlocks(body);
+
+  // 从文件名提取标题（去掉扩展名）
+  const fileBaseName = absolutePath.replace(/^.*[\\/]/, '').replace(/\.md$/i, '');
 
   console.log('');
   console.log('🔍 获取远端文档信息...');
-  const { rootBlockId, childCount } = await getDocumentRootInfo(client, documentId);
+  const {
+    rootBlockId,
+    childCount,
+    title: remoteTitle,
+  } = await getDocumentRootInfo(client, documentId);
+
+  // 确定最终标题
+  const finalTitle = await resolveTitle(localTitle, fileBaseName, remoteTitle);
+  if (finalTitle && finalTitle !== remoteTitle) {
+    console.log(`📝 更新文档标题: ${finalTitle}`);
+    await updateDocumentTitle(client, documentId, rootBlockId, finalTitle);
+  }
 
   console.log('🧹 清空远端文档内容...');
   await clearDocumentBlocks(client, documentId, rootBlockId, childCount);
@@ -291,6 +310,57 @@ async function executeUploadFlow(client: ReturnType<typeof createFeishuClient>):
   console.log('✅ 上传完成！');
   console.log(`📄 本地文件: ${absolutePath}`);
   console.log(`🆔 文档 ID: ${documentId}`);
+}
+
+/**
+ * 确定上传使用的文档标题
+ *
+ * 比较本地 H1 标题和文件名：
+ * - 两者一致 → 使用该标题更新远端
+ * - 两者不一致 → 询问用户选择
+ * - 只有一个存在 → 使用存在的那个
+ */
+async function resolveTitle(
+  h1Title: string | null,
+  fileName: string,
+  remoteTitle: string,
+): Promise<string | null> {
+  const h1 = h1Title?.trim() || null;
+  const fn = fileName.trim() || null;
+
+  // 都没有，不更新
+  if (!h1 && !fn) return null;
+
+  // 只有一个存在
+  if (!h1) return fn;
+  if (!fn) return h1;
+
+  // 两者一致
+  if (h1 === fn) return h1;
+
+  // 两者不一致，询问用户
+  console.log('');
+  console.log('⚠️  文档标题不一致:');
+  console.log(`   文件名:    ${fn}`);
+  console.log(`   一级标题:  ${h1}`);
+  console.log(`   远端标题:  ${remoteTitle}`);
+
+  const { choice } = await inquirer.prompt([
+    {
+      type: 'select',
+      name: 'choice',
+      message: '请选择要使用的文档标题:',
+      choices: [
+        { name: `📄 使用文件名: ${fn}`, value: 'file' },
+        { name: `📝 使用一级标题: ${h1}`, value: 'h1' },
+        { name: `☁️  保持远端标题不变: ${remoteTitle}`, value: 'remote' },
+      ],
+    },
+  ]);
+
+  if (choice === 'file') return fn;
+  if (choice === 'h1') return h1;
+  return null; // 保持远端不变
 }
 
 /**
