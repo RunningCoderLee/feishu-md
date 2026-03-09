@@ -3,6 +3,36 @@
  * 供下载（converter）和上传（uploader）两侧共用
  */
 
+/**
+ * 飞书文档块类型
+ */
+export enum BlockType {
+  PAGE = 1,
+  TEXT = 2,
+  HEADING1 = 3,
+  HEADING2 = 4,
+  HEADING3 = 5,
+  HEADING4 = 6,
+  HEADING5 = 7,
+  HEADING6 = 8,
+  HEADING7 = 9,
+  HEADING8 = 10,
+  HEADING9 = 11,
+  BULLET = 12,
+  ORDERED = 13,
+  CODE = 14,
+  QUOTE = 15,
+  TODO = 17,
+  CALLOUT = 19,
+  DIVIDER = 22,
+  IMAGE = 27,
+  TABLE = 31,
+  TABLE_CELL = 32,
+  VIEW = 33,
+  QUOTE_CONTAINER = 34,
+  ADD_ONS = 40,
+}
+
 /** 链接信息 */
 export interface LinkInfo {
   url?: string;
@@ -149,3 +179,30 @@ export function getLanguageCode(language: string): number {
 export function getLanguageName(code: number): string {
   return FEISHU_LANGUAGE_MAP[code] || 'plaintext';
 }
+
+// ============ 共享常量 ============
+
+/** 飞书图片占位协议前缀 */
+export const FEISHU_IMAGE_PREFIX = 'feishu-image:';
+
+/** 飞书文本绘图（Mermaid）小组件的 component_type_id */
+export const MERMAID_COMPONENT_TYPE_ID = 'blk_631fefbbae02400430b8f9f4';
+
+/** Mermaid 组件 view 标识 */
+export const MERMAID_VIEW_TYPE = 'codeChart';
+
+/** Block 数据字段名（heading1~6、text、bullet 等），用于动态遍历 */
+export const BLOCK_DATA_FIELDS = [
+  'text',
+  'heading1',
+  'heading2',
+  'heading3',
+  'heading4',
+  'heading5',
+  'heading6',
+  'bullet',
+  'ordered',
+  'code',
+  'quote',
+  'callout',
+] as const;

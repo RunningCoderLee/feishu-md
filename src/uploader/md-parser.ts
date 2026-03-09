@@ -1,10 +1,13 @@
-import { BlockType } from '../converter/blocks.js';
 import {
   type BlockContent,
+  BlockType,
   type CodeContent,
   type DocumentElement,
+  FEISHU_IMAGE_PREFIX,
   getLanguageCode,
   type ImageContent,
+  MERMAID_COMPONENT_TYPE_ID,
+  MERMAID_VIEW_TYPE,
   type TextElementStyle,
 } from '../types/feishu-blocks.js';
 
@@ -53,11 +56,8 @@ export interface FeishuUploadBlock {
 
 // ============ 常量 ============
 
-const IMAGE_LINE_REGEX = /^!\[[^\]]*\]\(feishu-image:([^)\s]+)\)$/;
+const IMAGE_LINE_REGEX = new RegExp(`^!\\[[^\\]]*\\]\\(${FEISHU_IMAGE_PREFIX}([^)\\s]+)\\)$`);
 const INLINE_TOKEN_REGEX = /(\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^)]+\))/;
-
-/** 飞书文本绘图（Mermaid）小组件的 component_type_id */
-const MERMAID_COMPONENT_TYPE_ID = 'blk_631fefbbae02400430b8f9f4';
 
 const HEADING_BLOCK_TYPES: Record<number, { type: BlockType; field: string }> = {
   1: { type: BlockType.HEADING1, field: 'heading1' },
@@ -176,7 +176,7 @@ function parseCodeBlock(
         block_type: BlockType.ADD_ONS,
         add_ons: {
           component_type_id: MERMAID_COMPONENT_TYPE_ID,
-          record: JSON.stringify({ view: 'codeChart', data: content, theme: 'default' }),
+          record: JSON.stringify({ view: MERMAID_VIEW_TYPE, data: content, theme: 'default' }),
         },
       },
       endIndex: i,

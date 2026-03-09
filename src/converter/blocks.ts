@@ -1,41 +1,14 @@
 import {
   type BlockContent,
+  BlockType,
   type CodeContent,
   type DocumentElement,
+  FEISHU_IMAGE_PREFIX,
   getLanguageName,
   type ImageContent,
+  MERMAID_VIEW_TYPE,
   type TextElementStyle,
 } from '../types/feishu-blocks.js';
-
-/**
- * 飞书文档块类型
- */
-export enum BlockType {
-  PAGE = 1,
-  TEXT = 2,
-  HEADING1 = 3,
-  HEADING2 = 4,
-  HEADING3 = 5,
-  HEADING4 = 6,
-  HEADING5 = 7,
-  HEADING6 = 8,
-  HEADING7 = 9,
-  HEADING8 = 10,
-  HEADING9 = 11,
-  BULLET = 12,
-  ORDERED = 13,
-  CODE = 14,
-  QUOTE = 15,
-  TODO = 17,
-  CALLOUT = 19,
-  DIVIDER = 22,
-  IMAGE = 27,
-  TABLE = 31,
-  TABLE_CELL = 32,
-  VIEW = 33,
-  QUOTE_CONTAINER = 34,
-  ADD_ONS = 40,
-}
 
 // ============ TypeScript 接口定义（仅 blocks.ts 专用） ============
 
@@ -356,7 +329,7 @@ function convertAddOnsBlock(block: FeishuBlock): string {
   try {
     const record = JSON.parse(recordStr) as AddOnsRecord;
 
-    if (record.view === 'codeChart') {
+    if (record.view === MERMAID_VIEW_TYPE) {
       const data = record.data?.trim();
       if (data) {
         return `\`\`\`mermaid\n${data}\n\`\`\``;
@@ -439,5 +412,5 @@ function convertImageBlock(block: FeishuBlock): string {
 
   // 图片 token 需要通过另外的 API 下载
   const token = image.token || '';
-  return `![图片](feishu-image:${token})`;
+  return `![图片](${FEISHU_IMAGE_PREFIX}${token})`;
 }

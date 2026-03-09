@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { injectFrontMatter, parseFrontMatter } from '../uploader/front-matter.js';
+import { injectFrontMatter, parseFrontMatter } from '../utils/front-matter.js';
 
 describe('parseFrontMatter', () => {
   it('解析标准 front-matter', () => {

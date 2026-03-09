@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { BlockType, convertBlocksToMarkdown } from '../converter/blocks.js';
+import { convertBlocksToMarkdown } from '../converter/blocks.js';
+import { BlockType } from '../types/feishu-blocks.js';
 
 /** 辅助函数：构造一个带文本内容的块 */
 function textBlock(

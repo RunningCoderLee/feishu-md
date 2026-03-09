@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BlockType } from '../converter/blocks.js';
+import { BlockType } from '../types/feishu-blocks.js';
 import { parseMarkdownToBlocks } from '../uploader/md-parser.js';
 
 describe('parseMarkdownToBlocks', () => {

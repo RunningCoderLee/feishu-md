@@ -10,9 +10,9 @@ import {
 } from '../api/upload.js';
 import { getWikiNodeInfo } from '../api/wiki.js';
 import { parseDocumentId } from '../parser/url-parser.js';
-import { parseFrontMatter } from '../uploader/front-matter.js';
 import { parseMarkdownToBlocks } from '../uploader/md-parser.js';
 import { dumpDebugJson, isDebug } from '../utils/debug.js';
+import { parseFrontMatter } from '../utils/front-matter.js';
 
 // ============ Prompt ============
 

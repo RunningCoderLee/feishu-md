@@ -1,4 +1,5 @@
 import type * as lark from '@larksuiteoapi/node-sdk';
+import { formatApiError, withRetry } from '../utils/api-helpers.js';
 
 /**
  * 获取文档所有块
@@ -16,15 +17,17 @@ export async function getDocumentBlocks(client: lark.Client, documentId: string)
 
     // 分页获取所有块
     do {
-      const response = await client.docx.documentBlock.list({
-        path: {
-          document_id: documentId,
-        },
-        params: {
-          page_size: 500,
-          page_token: pageToken,
-        },
-      });
+      const response = await withRetry(() =>
+        client.docx.documentBlock.list({
+          path: {
+            document_id: documentId,
+          },
+          params: {
+            page_size: 500,
+            page_token: pageToken,
+          },
+        }),
+      );
 
       if (response.code !== 0) {
         throw new Error(`获取文档块失败: ${response.msg} (code: ${response.code})`);
@@ -39,9 +42,6 @@ export async function getDocumentBlocks(client: lark.Client, documentId: string)
 
     return allBlocks;
   } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(`获取文档块失败: ${error.message}`);
-    }
-    throw error;
+    throw formatApiError(error, '获取文档块失败');
   }
 }
