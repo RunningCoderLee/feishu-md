@@ -3,6 +3,22 @@
   "version": "0.4.0",
   "type": "module",
   "description": "飞书文档 Markdown 双向同步命令行工具",
+  "keywords": [
+    "feishu",
+    "lark",
+    "markdown",
+    "cli",
+    "sync",
+    "飞书",
+    "知识库"
+  ],
+  "license": "MIT",
+  "author": "RunningCoderLee",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RunningCoderLee/feishu-md.git"
+  },
+  "homepage": "https://github.com/RunningCoderLee/feishu-md#readme",
   "bin": {
     "feishu-md": "./dist/index.js"
   },
@@ -25,6 +41,8 @@
   },
   "files": [
     "dist",
+    "!dist/__tests__",
+    "LICENSE",
     "README.md"
   ],
   "dependencies": {
