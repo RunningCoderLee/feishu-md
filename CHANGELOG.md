@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0] - 2026-03-10
+
+### Added
+
+- 并发下载优化：引入 FIFO 限速队列（RequestQueue）替代时间戳节流，支持并发场景下的正确限速
+- 下载并发控制：`withConcurrency` worker-pool 模式，默认 2 路并发下载
+- 文档树并行构建：`getWikiNodeTree` 使用 `Promise.all` 并行获取兄弟节点
+- 实时进度条：下载过程中显示彩色进度条，含已完成/总数、百分比、耗时
+- 文档链接缓存：记住上次下载的文档链接和标题，回车即可复用
+- 下载完成摘要：显示文档总数和总耗时
+
+### Fixed
+
+- 修复 `getDocumentBlocks` 分页逻辑：正确检查 `has_more` 字段
+- 修复平铺下载模式路径提示文案
+- 修复递归下载中 `Promise.all` 无并发上限的问题，改用 `withConcurrency`
+- 修复平铺下载中 `nameCount` 误统计非文档类型节点导致的假性重名
+
 ## [0.1.2] - 2026-03-06
 
 ### Added
