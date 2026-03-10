@@ -37,7 +37,7 @@ export async function getDocumentBlocks(client: lark.Client, documentId: string)
         allBlocks.push(...response.data.items);
       }
 
-      pageToken = response.data?.page_token;
+      pageToken = response.data?.has_more ? response.data?.page_token : undefined;
     } while (pageToken);
 
     return allBlocks;

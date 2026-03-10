@@ -102,7 +102,9 @@ async function downloadTree(
       bar.skip(node.title, `${node.objType}`);
     }
 
-    await Promise.all(node.children.map((child) => downloadTree(client, child, folderPath, bar)));
+    await withConcurrency(node.children, DOWNLOAD_CONCURRENCY, (child) =>
+      downloadTree(client, child, folderPath, bar),
+    );
   } else {
     if (node.objType === 'docx' || node.objType === 'doc') {
       const ok = await downloadSingleDocument(client, node.objToken, `${basePath}/${safeName}.md`);
@@ -160,9 +162,14 @@ async function promptDownloadMode(): Promise<'single' | 'recursive' | 'flat'> {
 /**
  * 提示用户输入存储路径
  */
-async function promptOutputPath(mode: 'single' | 'recursive'): Promise<string> {
+async function promptOutputPath(mode: 'single' | 'recursive' | 'flat'): Promise<string> {
   const cwd = process.cwd();
-  const hint = mode === 'recursive' ? '子文档将按知识库层级创建文件夹' : '文档将保存到该目录下';
+  const hints: Record<string, string> = {
+    single: '文档将保存到该目录下',
+    recursive: '子文档将按知识库层级创建文件夹',
+    flat: '所有子文档将平铺保存到该目录下',
+  };
+  const hint = hints[mode];
   const lastPath = loadLastOutputPath();
 
   console.log('');
@@ -340,7 +347,7 @@ export async function executeDownloadFlow(
   saveLastDocumentUrl(url, nodeInfo.title);
 
   const mode = nodeInfo.hasChild ? await promptDownloadMode() : 'single';
-  const outputPath = await promptOutputPath(mode === 'single' ? 'single' : 'recursive');
+  const outputPath = await promptOutputPath(mode);
 
   console.log('');
   console.log('📥 开始下载...');
