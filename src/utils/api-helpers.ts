@@ -1,19 +1,43 @@
 // ============ 限速与重试 ============
 
-const REQUEST_INTERVAL_MS = 350; // ~2.8 次/秒，低于限制的 3 次/秒
+const REQUEST_INTERVAL_MS = 300; // ~3.3 次/秒
 const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 1000;
 
-let lastRequestTime = 0;
+/**
+ * FIFO 请求队列 — 每隔 REQUEST_INTERVAL_MS 释放一个 slot。
+ * 在并发场景下正确串行限速，避免 throttle 时间戳的竞态问题。
+ */
+class RequestQueue {
+  private queue: Array<() => void> = [];
+  private processing = false;
+  private lastDispatchTime = 0;
 
-async function throttle(): Promise<void> {
-  const now = Date.now();
-  const elapsed = now - lastRequestTime;
-  if (elapsed < REQUEST_INTERVAL_MS) {
-    await new Promise((resolve) => setTimeout(resolve, REQUEST_INTERVAL_MS - elapsed));
+  enqueue(): Promise<void> {
+    return new Promise((resolve) => {
+      this.queue.push(resolve);
+      if (!this.processing) this.process();
+    });
   }
-  lastRequestTime = Date.now();
+
+  private process(): void {
+    this.processing = true;
+    const next = this.queue.shift();
+    if (!next) {
+      this.processing = false;
+      return;
+    }
+    const elapsed = Date.now() - this.lastDispatchTime;
+    const delay = Math.max(0, REQUEST_INTERVAL_MS - elapsed);
+    setTimeout(() => {
+      this.lastDispatchTime = Date.now();
+      next();
+      this.process();
+    }, delay);
+  }
 }
+
+const requestQueue = new RequestQueue();
 
 /**
  * 从飞书 SDK 错误中提取结构化信息
@@ -113,12 +137,11 @@ function is429Error(error: unknown): boolean {
 export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      await throttle();
+      await requestQueue.enqueue();
       return await fn();
     } catch (error) {
       if (is429Error(error) && attempt < MAX_RETRIES) {
         const delay = RETRY_BASE_DELAY_MS * 2 ** attempt;
-        console.log(`   ⏳ 请求限流，${(delay / 1000).toFixed(1)}s 后重试...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }

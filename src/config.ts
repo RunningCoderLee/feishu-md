@@ -93,6 +93,31 @@ export function saveLastOutputPath(outputPath: string): void {
 }
 
 /**
+ * 读取上次下载的文档链接
+ */
+export function loadLastDocumentUrl(): { url: string; title: string } | null {
+  const configPath = getHomeConfigPath();
+  const raw = readRawConfig(configPath);
+  if (raw?.lastDocumentUrl && raw?.lastDocumentTitle) {
+    return { url: raw.lastDocumentUrl, title: raw.lastDocumentTitle };
+  }
+  return null;
+}
+
+/**
+ * 保存本次下载的文档链接
+ */
+export function saveLastDocumentUrl(url: string, title: string): void {
+  const configPath = getHomeConfigPath();
+  const existing = readRawConfig(configPath);
+  writeFileSync(
+    configPath,
+    JSON.stringify({ ...existing, lastDocumentUrl: url, lastDocumentTitle: title }, null, 2),
+    'utf-8',
+  );
+}
+
+/**
  * 读取配置文件原始 JSON
  */
 function readRawConfig(path: string): Record<string, any> | null {

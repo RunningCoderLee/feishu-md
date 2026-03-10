@@ -105,11 +105,9 @@ export async function getWikiNodeTree(
     ? await getWikiChildNodes(client, spaceId, rootNode.nodeToken)
     : [];
 
-  const childTrees: WikiTreeNode[] = [];
-  for (const child of children) {
-    const childTree = await getWikiNodeTree(client, spaceId, child, visited);
-    childTrees.push(childTree);
-  }
+  const childTrees = await Promise.all(
+    children.map((child) => getWikiNodeTree(client, spaceId, child, visited)),
+  );
 
   return {
     ...rootNode,

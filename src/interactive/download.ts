@@ -2,10 +2,17 @@ import { resolve } from 'node:path';
 import inquirer from 'inquirer';
 import type { createFeishuClient } from '../api/client.js';
 import { getWikiNodeInfo, getWikiNodeTree, type WikiTreeNode } from '../api/wiki.js';
-import { loadLastOutputPath, saveLastOutputPath } from '../config.js';
+import {
+  loadLastDocumentUrl,
+  loadLastOutputPath,
+  saveLastDocumentUrl,
+  saveLastOutputPath,
+} from '../config.js';
 import { fetchDocumentMarkdown } from '../converter/markdown.js';
 import { parseDocumentId } from '../parser/url-parser.js';
+import { DOWNLOAD_CONCURRENCY, withConcurrency } from '../utils/concurrency.js';
 import { writeFile } from '../utils/file.js';
+import { ProgressBar } from '../utils/progress.js';
 
 // ============ 工具函数 ============
 
@@ -50,20 +57,17 @@ function flattenTree(
 // ============ 下载核心 ============
 
 /**
- * 下载单个文档并保存
+ * 下载单个文档并保存，返回是否成功写入
  */
 async function downloadSingleDocument(
   client: ReturnType<typeof createFeishuClient>,
   documentId: string,
-  title: string,
   outputPath: string,
-): Promise<void> {
+): Promise<boolean> {
   const content = await fetchDocumentMarkdown(client, documentId);
-  if (!content) {
-    console.log(`   ⏭️  文档内容为空，跳过: ${title}`);
-    return;
-  }
+  if (!content) return false;
   await writeFile(outputPath, content);
+  return true;
 }
 
 /**
@@ -79,34 +83,32 @@ async function downloadTree(
   client: ReturnType<typeof createFeishuClient>,
   node: WikiTreeNode,
   basePath: string,
-  counter: { current: number; total: number },
+  bar: ProgressBar,
 ): Promise<void> {
   const safeName = sanitizeFileName(node.title);
   const hasChildren = node.children.length > 0;
-
-  counter.current++;
-  console.log(`[${counter.current}/${counter.total}] 下载: ${node.title}`);
 
   if (hasChildren) {
     const folderPath = `${basePath}/${safeName}`;
 
     if (node.objType === 'docx' || node.objType === 'doc') {
-      await downloadSingleDocument(
+      const ok = await downloadSingleDocument(
         client,
         node.objToken,
-        node.title,
         `${folderPath}/${safeName}.md`,
       );
+      ok ? bar.tick(node.title) : bar.skip(node.title, '内容为空');
+    } else {
+      bar.skip(node.title, `${node.objType}`);
     }
 
-    for (const child of node.children) {
-      await downloadTree(client, child, folderPath, counter);
-    }
+    await Promise.all(node.children.map((child) => downloadTree(client, child, folderPath, bar)));
   } else {
     if (node.objType === 'docx' || node.objType === 'doc') {
-      await downloadSingleDocument(client, node.objToken, node.title, `${basePath}/${safeName}.md`);
+      const ok = await downloadSingleDocument(client, node.objToken, `${basePath}/${safeName}.md`);
+      ok ? bar.tick(node.title) : bar.skip(node.title, '内容为空');
     } else {
-      console.log(`   ⏭️  不支持的文档类型 (${node.objType})，跳过: ${node.title}`);
+      bar.skip(node.title, `不支持的类型 ${node.objType}`);
     }
   }
 }
@@ -114,14 +116,18 @@ async function downloadTree(
 // ============ Prompt ============
 
 /**
- * 提示用户输入文档链接
+ * 提示用户输入文档链接（支持回车复用上次地址）
  */
 async function promptDocumentUrl(): Promise<string> {
+  const last = loadLastDocumentUrl();
+  const hint = last ? ` (回车使用上次: ${last.title})` : '';
+
   const { url } = await inquirer.prompt([
     {
       type: 'input',
       name: 'url',
-      message: '请输入飞书文档链接:',
+      message: `请输入飞书文档链接${hint}:`,
+      default: last?.url,
       validate: (input: string) => {
         if (!input.trim()) return '文档链接不能为空';
         if (!input.includes('feishu.cn')) return '请输入有效的飞书文档链接';
@@ -197,10 +203,14 @@ async function handleNonWikiDocument(
   const filePath = `${outputPath}/${docToken}.md`;
   console.log('');
   console.log('📥 开始下载...');
-  await downloadSingleDocument(client, docToken, docToken, filePath);
+  const ok = await downloadSingleDocument(client, docToken, filePath);
   console.log('');
-  console.log('✅ 下载完成！');
-  console.log(`📄 输出文件: ${resolve(filePath)}`);
+  if (ok) {
+    console.log('✅ 下载完成！');
+    console.log(`📄 输出文件: ${resolve(filePath)}`);
+  } else {
+    console.log('⏭️  文档内容为空');
+  }
 }
 
 /**
@@ -213,7 +223,7 @@ async function executeSingleDownload(
 ): Promise<void> {
   const safeName = sanitizeFileName(nodeInfo.title);
   const filePath = `${outputPath}/${safeName}.md`;
-  await downloadSingleDocument(client, nodeInfo.objToken, nodeInfo.title, filePath);
+  await downloadSingleDocument(client, nodeInfo.objToken, filePath);
   console.log('');
   console.log('✅ 下载完成！');
   console.log(`📄 输出文件: ${resolve(filePath)}`);
@@ -227,17 +237,20 @@ async function executeRecursiveDownload(
   nodeInfo: Awaited<ReturnType<typeof getWikiNodeInfo>>,
   outputPath: string,
 ): Promise<void> {
+  const startTime = Date.now();
   console.log('🌳 正在获取文档树结构...');
   const tree = await getWikiNodeTree(client, nodeInfo.spaceId, nodeInfo);
   const total = countNodes(tree);
   console.log(`   共发现 ${total} 个文档节点`);
   console.log('');
 
-  const counter = { current: 0, total };
-  await downloadTree(client, tree, outputPath, counter);
+  const bar = new ProgressBar(total);
+  await downloadTree(client, tree, outputPath, bar);
 
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  bar.done();
   console.log('');
-  console.log(`✅ 下载完成！共 ${total} 个文档`);
+  console.log(`✅ 下载完成！共 ${total} 个文档，耗时 ${elapsed}s`);
   console.log(`📁 输出目录: ${resolve(outputPath)}`);
 }
 
@@ -249,6 +262,7 @@ async function executeFlatDownload(
   nodeInfo: Awaited<ReturnType<typeof getWikiNodeInfo>>,
   outputPath: string,
 ): Promise<void> {
+  const startTime = Date.now();
   console.log('🌳 正在获取文档树结构...');
   const tree = await getWikiNodeTree(client, nodeInfo.spaceId, nodeInfo);
   const total = countNodes(tree);
@@ -256,24 +270,18 @@ async function executeFlatDownload(
   console.log('');
 
   const items = flattenTree(tree);
+  const docItems = items.filter(({ node }) => node.objType === 'docx' || node.objType === 'doc');
 
   const nameCount = new Map<string, number>();
-  for (const { node } of items) {
+  for (const { node } of docItems) {
     const name = sanitizeFileName(node.title);
     nameCount.set(name, (nameCount.get(name) || 0) + 1);
   }
 
-  let current = 0;
+  // 串行计算文件名（去重逻辑有状态），然后并发下载
+  const resolved: Array<{ node: WikiTreeNode; filePath: string }> = [];
   const usedNames = new Set<string>();
-  for (const { node, parentTitle } of items) {
-    current++;
-    console.log(`[${current}/${total}] 下载: ${node.title}`);
-
-    if (node.objType !== 'docx' && node.objType !== 'doc') {
-      console.log(`   ⏭️  不支持的文档类型 (${node.objType})，跳过: ${node.title}`);
-      continue;
-    }
-
+  for (const { node, parentTitle } of docItems) {
     const safeName = sanitizeFileName(node.title);
     const isDuplicate = (nameCount.get(safeName) || 0) > 1;
     let fileName =
@@ -287,12 +295,19 @@ async function executeFlatDownload(
       fileName = `${fileName.slice(0, -3)}_${i}.md`;
     }
     usedNames.add(fileName);
-
-    await downloadSingleDocument(client, node.objToken, node.title, `${outputPath}/${fileName}`);
+    resolved.push({ node, filePath: `${outputPath}/${fileName}` });
   }
 
+  const bar = new ProgressBar(resolved.length);
+  await withConcurrency(resolved, DOWNLOAD_CONCURRENCY, async ({ node, filePath }) => {
+    const ok = await downloadSingleDocument(client, node.objToken, filePath);
+    ok ? bar.tick(node.title) : bar.skip(node.title, '内容为空');
+  });
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  bar.done();
   console.log('');
-  console.log(`✅ 下载完成！共 ${total} 个文档`);
+  console.log(`✅ 下载完成！共 ${resolved.length} 个文档，耗时 ${elapsed}s`);
   console.log(`📁 输出目录: ${resolve(outputPath)}`);
 }
 
@@ -321,6 +336,8 @@ export async function executeDownloadFlow(
   console.log(`   文档标题: ${nodeInfo.title}`);
   console.log(`   文档类型: ${nodeInfo.objType}`);
   console.log(`   包含子文档: ${nodeInfo.hasChild ? '是' : '否'}`);
+
+  saveLastDocumentUrl(url, nodeInfo.title);
 
   const mode = nodeInfo.hasChild ? await promptDownloadMode() : 'single';
   const outputPath = await promptOutputPath(mode === 'single' ? 'single' : 'recursive');
