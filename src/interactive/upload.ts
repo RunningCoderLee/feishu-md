@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import inquirer from 'inquirer';
-import type { createFeishuClient } from '../api/client.js';
+import type { AppPool, FeishuApp } from '../api/app.js';
 import {
   clearDocumentBlocks,
   createDocumentBlocks,
@@ -118,7 +118,7 @@ async function resolveTitle(
  * 从 front-matter 或用户输入解析文档 ID
  */
 async function resolveDocumentId(
-  client: ReturnType<typeof createFeishuClient>,
+  app: FeishuApp,
   frontMatter: Record<string, unknown>,
 ): Promise<string> {
   const docId = typeof frontMatter.feishu_doc_id === 'string' ? frontMatter.feishu_doc_id : null;
@@ -131,7 +131,7 @@ async function resolveDocumentId(
   if (url.includes('/wiki/')) {
     console.log('');
     console.log('🔍 从知识库节点获取文档信息...');
-    const nodeInfo = await getWikiNodeInfo(client, token);
+    const nodeInfo = await getWikiNodeInfo(app, token);
     if (nodeInfo.objType !== 'docx' && nodeInfo.objType !== 'doc') {
       throw new Error(`不支持的文档类型: ${nodeInfo.objType}，仅支持 docx 类型的文档`);
     }
@@ -147,7 +147,7 @@ async function resolveDocumentId(
  * 上传单个文件到飞书文档（供单文件和批量模式共用）
  */
 async function uploadSingleDocument(
-  client: ReturnType<typeof createFeishuClient>,
+  app: FeishuApp,
   documentId: string,
   uploadBlocks: FeishuUploadBlock[],
   localTitle: string | null,
@@ -157,18 +157,18 @@ async function uploadSingleDocument(
     rootBlockId,
     childCount,
     title: remoteTitle,
-  } = await getDocumentRootInfo(client, documentId);
+  } = await getDocumentRootInfo(app, documentId);
 
   const finalTitle = await resolveTitle(localTitle, fileBaseName, remoteTitle);
   if (finalTitle && finalTitle !== remoteTitle) {
     console.log(`📝 更新文档标题: ${finalTitle}`);
-    await updateDocumentTitle(client, documentId, rootBlockId, finalTitle);
+    await updateDocumentTitle(app, documentId, rootBlockId, finalTitle);
   }
 
-  await clearDocumentBlocks(client, documentId, rootBlockId, childCount);
+  await clearDocumentBlocks(app, documentId, rootBlockId, childCount);
 
   if (uploadBlocks.length > 0) {
-    await createDocumentBlocks(client, documentId, rootBlockId, uploadBlocks);
+    await createDocumentBlocks(app, documentId, rootBlockId, uploadBlocks);
   }
 }
 
@@ -177,9 +177,7 @@ async function uploadSingleDocument(
 /**
  * 执行单文件上传流程
  */
-export async function executeUploadFlow(
-  client: ReturnType<typeof createFeishuClient>,
-): Promise<void> {
+export async function executeUploadFlow(pool: AppPool): Promise<void> {
   const markdownPath = await promptMarkdownPath();
   const absolutePath = resolve(markdownPath);
 
@@ -191,7 +189,7 @@ export async function executeUploadFlow(
   }
 
   const { frontMatter, body } = parseFrontMatter(content);
-  const documentId = await resolveDocumentId(client, frontMatter);
+  const documentId = await resolveDocumentId(pool.primary, frontMatter);
 
   const { blocks: uploadBlocks, title: localTitle } = parseMarkdownToBlocks(body);
 
@@ -203,7 +201,7 @@ export async function executeUploadFlow(
 
   console.log('');
   console.log('🔍 获取远端文档信息...');
-  await uploadSingleDocument(client, documentId, uploadBlocks, localTitle, fileBaseName);
+  await uploadSingleDocument(pool.primary, documentId, uploadBlocks, localTitle, fileBaseName);
 
   console.log('');
   console.log('✅ 上传完成！');
@@ -314,9 +312,7 @@ interface BatchUploadItem {
 /**
  * 执行批量上传流程
  */
-export async function executeBatchUploadFlow(
-  client: ReturnType<typeof createFeishuClient>,
-): Promise<void> {
+export async function executeBatchUploadFlow(pool: AppPool): Promise<void> {
   const dirPath = await promptDirectoryPath();
   const allFiles = scanMarkdownFiles(dirPath);
 
@@ -332,7 +328,7 @@ export async function executeBatchUploadFlow(
   console.log('');
   console.log(`📝 已选择 ${selectedFiles.length} 个文件，开始准备...`);
 
-  // 阶段一：顺序准备（解析文件、解析文档 ID、解析标题）
+  // 阶段一：顺序准备（解析文件、解析文档 ID、解析标题）— 使用主应用
   const items: BatchUploadItem[] = [];
   const skipped: Array<{ path: string; reason: string }> = [];
 
@@ -354,7 +350,7 @@ export async function executeBatchUploadFlow(
 
     let documentId: string;
     try {
-      documentId = await resolveDocumentId(client, frontMatter);
+      documentId = await resolveDocumentId(pool.primary, frontMatter);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       skipped.push({ path: rel, reason: msg });
@@ -375,7 +371,7 @@ export async function executeBatchUploadFlow(
       rootBlockId,
       childCount,
       title: remoteTitle,
-    } = await getDocumentRootInfo(client, documentId);
+    } = await getDocumentRootInfo(pool.primary, documentId);
 
     const finalTitle = await resolveTitle(localTitle, fileBaseName, remoteTitle);
 
@@ -396,24 +392,29 @@ export async function executeBatchUploadFlow(
     return;
   }
 
-  // 阶段二：并发上传
+  // 阶段二：并发上传 — round-robin 分配应用
   console.log('');
   console.log(`📤 开始上传 ${items.length} 个文件...`);
+  if (pool.all.length > 1) {
+    console.log(`   使用 ${pool.all.length} 个应用并行上传`);
+  }
   console.log('');
 
   const startTime = Date.now();
   const bar = new ProgressBar(items.length);
   const errors: Array<{ path: string; error: string }> = [];
 
-  await withConcurrency(items, UPLOAD_CONCURRENCY, async (item) => {
+  const concurrency = UPLOAD_CONCURRENCY * pool.all.length;
+  await withConcurrency(items, concurrency, async (item) => {
+    const app = pool.next();
     const rel = relative(dirPath, item.absolutePath);
     try {
       if (item.finalTitle && item.finalTitle !== item.remoteTitle) {
-        await updateDocumentTitle(client, item.documentId, item.rootBlockId, item.finalTitle);
+        await updateDocumentTitle(app, item.documentId, item.rootBlockId, item.finalTitle);
       }
-      await clearDocumentBlocks(client, item.documentId, item.rootBlockId, item.childCount);
+      await clearDocumentBlocks(app, item.documentId, item.rootBlockId, item.childCount);
       if (item.uploadBlocks.length > 0) {
-        await createDocumentBlocks(client, item.documentId, item.rootBlockId, item.uploadBlocks);
+        await createDocumentBlocks(app, item.documentId, item.rootBlockId, item.uploadBlocks);
       }
       bar.tick(rel);
     } catch (error) {

@@ -1,24 +1,20 @@
-import type * as lark from '@larksuiteoapi/node-sdk';
-import { formatApiError, withRetry } from '../utils/api-helpers.js';
+import { formatApiError } from '../utils/api-helpers.js';
+import type { FeishuApp } from './app.js';
 
 /**
  * 获取文档所有块
  *
  * 文档: https://open.feishu.cn/document/server-docs/docs/docs/docx-v1/document-block/list
- *
- * @param client 飞书客户端
- * @param documentId 文档 ID
- * @returns 文档块列表
  */
-export async function getDocumentBlocks(client: lark.Client, documentId: string): Promise<any[]> {
+export async function getDocumentBlocks(app: FeishuApp, documentId: string): Promise<any[]> {
   try {
     const allBlocks: any[] = [];
     let pageToken: string | undefined;
 
     // 分页获取所有块
     do {
-      const response = await withRetry(() =>
-        client.docx.documentBlock.list({
+      const response = await app.withRetry(() =>
+        app.client.docx.documentBlock.list({
           path: {
             document_id: documentId,
           },

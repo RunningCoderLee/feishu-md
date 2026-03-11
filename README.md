@@ -95,6 +95,23 @@ feishu-md --debug
 }
 ```
 
+### 多应用并行加速
+
+飞书 API 限速按应用独立计算。配置多个应用可线性提升下载/上传速度：
+
+```json
+{
+  "appId": "主应用 ID",
+  "appSecret": "主应用 Secret",
+  "extraApps": [
+    { "appId": "额外应用1 ID", "appSecret": "额外应用1 Secret" },
+    { "appId": "额外应用2 ID", "appSecret": "额外应用2 Secret" }
+  ]
+}
+```
+
+也可通过交互式菜单 `⚙️ 查看/修改配置 → 📱 管理额外应用` 添加。所有应用需要有对应文档的访问权限。
+
 获取凭证：https://open.feishu.cn/app
 
 ## 开发
@@ -135,7 +152,7 @@ bash install.sh
 
 ### 实现细节
 
-- **飞书 API 限速**: 所有 API 调用内置节流 (~2.8 次/秒) 与指数退避重试 (最多 3 次)
+- **飞书 API 限速**: 每个应用独立限速 (~3.3 次/秒)，支持多应用并行提速；指数退避重试 (最多 3 次)
 - **上传策略**: 全量替换 — 清空远端文档所有子块后重建，不做增量 diff
 - **Mermaid 图表**: 通过飞书文档小组件 (block_type=40, add_ons) 实现，而非代码块
 - **wiki 链接**: wiki URL 中的 token 是 node_token，需通过 `getWikiNodeInfo` API 获取实际的 document_id (objToken) 才能操作文档内容

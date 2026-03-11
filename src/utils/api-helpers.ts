@@ -1,43 +1,4 @@
-// ============ 限速与重试 ============
-
-const REQUEST_INTERVAL_MS = 300; // ~3.3 次/秒
-const MAX_RETRIES = 3;
-const RETRY_BASE_DELAY_MS = 1000;
-
-/**
- * FIFO 请求队列 — 每隔 REQUEST_INTERVAL_MS 释放一个 slot。
- * 在并发场景下正确串行限速，避免 throttle 时间戳的竞态问题。
- */
-class RequestQueue {
-  private queue: Array<() => void> = [];
-  private processing = false;
-  private lastDispatchTime = 0;
-
-  enqueue(): Promise<void> {
-    return new Promise((resolve) => {
-      this.queue.push(resolve);
-      if (!this.processing) this.process();
-    });
-  }
-
-  private process(): void {
-    this.processing = true;
-    const next = this.queue.shift();
-    if (!next) {
-      this.processing = false;
-      return;
-    }
-    const elapsed = Date.now() - this.lastDispatchTime;
-    const delay = Math.max(0, REQUEST_INTERVAL_MS - elapsed);
-    setTimeout(() => {
-      this.lastDispatchTime = Date.now();
-      next();
-      this.process();
-    }, delay);
-  }
-}
-
-const requestQueue = new RequestQueue();
+// ============ API 错误处理 ============
 
 /**
  * 从飞书 SDK 错误中提取结构化信息
@@ -127,26 +88,4 @@ export function formatApiError(error: unknown, context: string): Error {
   }
   if (error instanceof Error) return new Error(`${context}: ${error.message}`);
   return new Error(`${context}: ${String(error)}`);
-}
-
-function is429Error(error: unknown): boolean {
-  const info = extractApiErrorInfo(error);
-  return info?.httpStatus === 429;
-}
-
-export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      await requestQueue.enqueue();
-      return await fn();
-    } catch (error) {
-      if (is429Error(error) && attempt < MAX_RETRIES) {
-        const delay = RETRY_BASE_DELAY_MS * 2 ** attempt;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw new Error('重试次数已耗尽');
 }

@@ -1,4 +1,4 @@
-import type * as lark from '@larksuiteoapi/node-sdk';
+import type { FeishuApp } from './app.js';
 
 export interface WikiNode {
   spaceId: string;
@@ -14,8 +14,8 @@ export interface WikiNode {
  *
  * 文档: https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/wiki-v2/space/get_node
  */
-export async function getWikiNodeInfo(client: lark.Client, token: string): Promise<WikiNode> {
-  const response = await client.wiki.space.getNode({
+export async function getWikiNodeInfo(app: FeishuApp, token: string): Promise<WikiNode> {
+  const response = await app.client.wiki.space.getNode({
     params: {
       token,
     },
@@ -46,7 +46,7 @@ export async function getWikiNodeInfo(client: lark.Client, token: string): Promi
  * 文档: https://open.feishu.cn/document/ukTMukTMukTM/uUDN04SN0QjL1QDN/wiki-v2/space-node/list
  */
 export async function getWikiChildNodes(
-  client: lark.Client,
+  app: FeishuApp,
   spaceId: string,
   parentNodeToken: string,
 ): Promise<WikiNode[]> {
@@ -54,7 +54,7 @@ export async function getWikiChildNodes(
   let pageToken: string | undefined;
 
   do {
-    const response = await client.wiki.spaceNode.list({
+    const response = await app.client.wiki.spaceNode.list({
       path: {
         space_id: spaceId,
       },
@@ -91,7 +91,7 @@ export async function getWikiChildNodes(
  * 递归获取节点树（包含自身和所有子孙节点）
  */
 export async function getWikiNodeTree(
-  client: lark.Client,
+  app: FeishuApp,
   spaceId: string,
   rootNode: WikiNode,
   visited = new Set<string>(),
@@ -102,11 +102,11 @@ export async function getWikiNodeTree(
   visited.add(rootNode.nodeToken);
 
   const children = rootNode.hasChild
-    ? await getWikiChildNodes(client, spaceId, rootNode.nodeToken)
+    ? await getWikiChildNodes(app, spaceId, rootNode.nodeToken)
     : [];
 
   const childTrees = await Promise.all(
-    children.map((child) => getWikiNodeTree(client, spaceId, child, visited)),
+    children.map((child) => getWikiNodeTree(app, spaceId, child, visited)),
   );
 
   return {

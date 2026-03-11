@@ -3,7 +3,7 @@ export const DOWNLOAD_CONCURRENCY = 2;
 /**
  * 以有限并发执行异步任务列表（worker-pool 模式）
  *
- * 实际 HTTP 限速由 api-helpers 的 RequestQueue 负责，
+ * 实际 HTTP 限速由 FeishuApp 各自的 RequestQueue 负责，
  * 此函数仅控制同时运行的任务数，防止内存过度占用。
  */
 export async function withConcurrency<T>(

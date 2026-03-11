@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { createFeishuClient } from '../api/client.js';
+import { createAppPool, createFeishuApp } from '../api/app.js';
 import { getDebugDir, isDebug } from '../utils/debug.js';
 import { ensureConfig, executeConfigFlow } from './config.js';
 import { executeDownloadFlow } from './download.js';
@@ -70,19 +70,25 @@ export async function runInteractive() {
     }
 
     const config = await ensureConfig();
-    const client = createFeishuClient(config.appId, config.appSecret);
+    const primary = createFeishuApp(config.appId, config.appSecret);
+    const extras = (config.extraApps ?? []).map((a) => createFeishuApp(a.appId, a.appSecret));
+    const pool = createAppPool(primary, extras);
+
+    if (extras.length > 0) {
+      console.log(`📱 已加载 ${pool.all.length} 个应用（主应用 + ${extras.length} 个额外应用）`);
+    }
 
     if (actionMode === 'upload') {
       const uploadMode = await promptUploadMode();
       if (uploadMode === 'single') {
-        await executeUploadFlow(client);
+        await executeUploadFlow(pool);
       } else {
-        await executeBatchUploadFlow(client);
+        await executeBatchUploadFlow(pool);
       }
       return;
     }
 
-    await executeDownloadFlow(client);
+    await executeDownloadFlow(pool);
   } catch (error) {
     if (isUserExit(error)) {
       console.log('\n👋 已退出');

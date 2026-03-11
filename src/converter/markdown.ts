@@ -1,4 +1,4 @@
-import type * as lark from '@larksuiteoapi/node-sdk';
+import type { FeishuApp } from '../api/app.js';
 import { getDocumentBlocks } from '../api/blocks.js';
 import { dumpDebugJson, isDebug } from '../utils/debug.js';
 import { injectFrontMatter } from '../utils/front-matter.js';
@@ -7,16 +7,9 @@ import { cleanMarkdown } from './cleaner.js';
 
 /**
  * 获取飞书文档的 Markdown 内容
- *
- * @param client 飞书客户端
- * @param documentId 文档 ID
- * @returns Markdown 内容（清理后），如果文档为空则返回空字符串
  */
-export async function fetchDocumentMarkdown(
-  client: lark.Client,
-  documentId: string,
-): Promise<string> {
-  const blocks = await getDocumentBlocks(client, documentId);
+export async function fetchDocumentMarkdown(app: FeishuApp, documentId: string): Promise<string> {
+  const blocks = await getDocumentBlocks(app, documentId);
   if (blocks.length === 0) return '';
 
   if (isDebug()) {

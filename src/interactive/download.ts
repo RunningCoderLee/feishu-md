@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import inquirer from 'inquirer';
-import type { createFeishuClient } from '../api/client.js';
+import type { AppPool, FeishuApp } from '../api/app.js';
 import { getWikiNodeInfo, getWikiNodeTree, type WikiTreeNode } from '../api/wiki.js';
 import {
   loadLastDocumentUrl,
@@ -61,11 +61,11 @@ function flattenTree(
  * 下载单个文档并保存，返回是否成功写入
  */
 async function downloadSingleDocument(
-  client: ReturnType<typeof createFeishuClient>,
+  app: FeishuApp,
   documentId: string,
   outputPath: string,
 ): Promise<boolean> {
-  const content = await fetchDocumentMarkdown(client, documentId);
+  const content = await fetchDocumentMarkdown(app, documentId);
   if (!content) return false;
   await writeFile(outputPath, content);
   return true;
@@ -81,7 +81,7 @@ async function downloadSingleDocument(
  * - 无内容 + 无子文档 → 跳过
  */
 async function downloadTree(
-  client: ReturnType<typeof createFeishuClient>,
+  pool: AppPool,
   node: WikiTreeNode,
   basePath: string,
   bar: ProgressBar,
@@ -94,7 +94,7 @@ async function downloadTree(
 
     if (node.objType === 'docx' || node.objType === 'doc') {
       const ok = await downloadSingleDocument(
-        client,
+        pool.next(),
         node.objToken,
         `${folderPath}/${safeName}.md`,
       );
@@ -103,12 +103,17 @@ async function downloadTree(
       bar.skip(node.title, `${node.objType}`);
     }
 
-    await withConcurrency(node.children, DOWNLOAD_CONCURRENCY, (child) =>
-      downloadTree(client, child, folderPath, bar),
+    const concurrency = DOWNLOAD_CONCURRENCY * pool.all.length;
+    await withConcurrency(node.children, concurrency, (child) =>
+      downloadTree(pool, child, folderPath, bar),
     );
   } else {
     if (node.objType === 'docx' || node.objType === 'doc') {
-      const ok = await downloadSingleDocument(client, node.objToken, `${basePath}/${safeName}.md`);
+      const ok = await downloadSingleDocument(
+        pool.next(),
+        node.objToken,
+        `${basePath}/${safeName}.md`,
+      );
       ok ? bar.tick(node.title) : bar.skip(node.title, '内容为空');
     } else {
       bar.skip(node.title, `不支持的类型 ${node.objType}`);
@@ -203,16 +208,13 @@ async function promptOutputPath(mode: 'single' | 'recursive' | 'flat'): Promise<
 /**
  * 处理非 wiki 文档的下载
  */
-async function handleNonWikiDocument(
-  client: ReturnType<typeof createFeishuClient>,
-  docToken: string,
-): Promise<void> {
+async function handleNonWikiDocument(pool: AppPool, docToken: string): Promise<void> {
   console.log('   该文档不在知识库中，将作为单文档下载');
   const outputPath = await promptOutputPath('single');
   const filePath = `${outputPath}/${docToken}.md`;
   console.log('');
   console.log('📥 开始下载...');
-  const ok = await downloadSingleDocument(client, docToken, filePath);
+  const ok = await downloadSingleDocument(pool.primary, docToken, filePath);
   console.log('');
   if (ok) {
     console.log('✅ 下载完成！');
@@ -226,13 +228,13 @@ async function handleNonWikiDocument(
  * 执行单文档下载
  */
 async function executeSingleDownload(
-  client: ReturnType<typeof createFeishuClient>,
+  pool: AppPool,
   nodeInfo: Awaited<ReturnType<typeof getWikiNodeInfo>>,
   outputPath: string,
 ): Promise<void> {
   const safeName = sanitizeFileName(nodeInfo.title);
   const filePath = `${outputPath}/${safeName}.md`;
-  await downloadSingleDocument(client, nodeInfo.objToken, filePath);
+  await downloadSingleDocument(pool.primary, nodeInfo.objToken, filePath);
   console.log('');
   console.log('✅ 下载完成！');
   console.log(`📄 输出文件: ${resolve(filePath)}`);
@@ -242,19 +244,19 @@ async function executeSingleDownload(
  * 执行递归下载
  */
 async function executeRecursiveDownload(
-  client: ReturnType<typeof createFeishuClient>,
+  pool: AppPool,
   nodeInfo: Awaited<ReturnType<typeof getWikiNodeInfo>>,
   outputPath: string,
 ): Promise<void> {
   const startTime = Date.now();
   console.log('🌳 正在获取文档树结构...');
-  const tree = await getWikiNodeTree(client, nodeInfo.spaceId, nodeInfo);
+  const tree = await getWikiNodeTree(pool.primary, nodeInfo.spaceId, nodeInfo);
   const total = countNodes(tree);
   console.log(`   共发现 ${total} 个文档节点`);
   console.log('');
 
   const bar = new ProgressBar(total);
-  await downloadTree(client, tree, outputPath, bar);
+  await downloadTree(pool, tree, outputPath, bar);
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   bar.done();
@@ -267,13 +269,13 @@ async function executeRecursiveDownload(
  * 执行平铺下载（所有文档保存到同一目录）
  */
 async function executeFlatDownload(
-  client: ReturnType<typeof createFeishuClient>,
+  pool: AppPool,
   nodeInfo: Awaited<ReturnType<typeof getWikiNodeInfo>>,
   outputPath: string,
 ): Promise<void> {
   const startTime = Date.now();
   console.log('🌳 正在获取文档树结构...');
-  const tree = await getWikiNodeTree(client, nodeInfo.spaceId, nodeInfo);
+  const tree = await getWikiNodeTree(pool.primary, nodeInfo.spaceId, nodeInfo);
   const total = countNodes(tree);
   console.log(`   共发现 ${total} 个文档节点`);
   console.log('');
@@ -308,8 +310,9 @@ async function executeFlatDownload(
   }
 
   const bar = new ProgressBar(resolved.length);
-  await withConcurrency(resolved, DOWNLOAD_CONCURRENCY, async ({ node, filePath }) => {
-    const ok = await downloadSingleDocument(client, node.objToken, filePath);
+  const concurrency = DOWNLOAD_CONCURRENCY * pool.all.length;
+  await withConcurrency(resolved, concurrency, async ({ node, filePath }) => {
+    const ok = await downloadSingleDocument(pool.next(), node.objToken, filePath);
     ok ? bar.tick(node.title) : bar.skip(node.title, '内容为空');
   });
 
@@ -325,9 +328,7 @@ async function executeFlatDownload(
 /**
  * 执行下载流程
  */
-export async function executeDownloadFlow(
-  client: ReturnType<typeof createFeishuClient>,
-): Promise<void> {
+export async function executeDownloadFlow(pool: AppPool): Promise<void> {
   const url = await promptDocumentUrl();
   const docToken = parseDocumentId(url);
 
@@ -336,9 +337,9 @@ export async function executeDownloadFlow(
 
   let nodeInfo: Awaited<ReturnType<typeof getWikiNodeInfo>>;
   try {
-    nodeInfo = await getWikiNodeInfo(client, docToken);
+    nodeInfo = await getWikiNodeInfo(pool.primary, docToken);
   } catch {
-    await handleNonWikiDocument(client, docToken);
+    await handleNonWikiDocument(pool, docToken);
     return;
   }
 
@@ -353,13 +354,16 @@ export async function executeDownloadFlow(
 
   console.log('');
   console.log('📥 开始下载...');
+  if (pool.all.length > 1) {
+    console.log(`   使用 ${pool.all.length} 个应用并行下载`);
+  }
   console.log('');
 
   if (mode === 'single') {
-    await executeSingleDownload(client, nodeInfo, outputPath);
+    await executeSingleDownload(pool, nodeInfo, outputPath);
   } else if (mode === 'flat') {
-    await executeFlatDownload(client, nodeInfo, outputPath);
+    await executeFlatDownload(pool, nodeInfo, outputPath);
   } else {
-    await executeRecursiveDownload(client, nodeInfo, outputPath);
+    await executeRecursiveDownload(pool, nodeInfo, outputPath);
   }
 }

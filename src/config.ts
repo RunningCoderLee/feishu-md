@@ -2,9 +2,15 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+export interface AppCredential {
+  appId: string;
+  appSecret: string;
+}
+
 export interface FeishuConfig {
   appId: string;
   appSecret: string;
+  extraApps?: AppCredential[];
 }
 
 const CONFIG_FILENAME = '.feishurc';
@@ -68,6 +74,18 @@ export function saveConfig(config: FeishuConfig): void {
   const existing = readRawConfig(configPath);
   writeFileSync(configPath, JSON.stringify({ ...existing, ...config }, null, 2), 'utf-8');
   console.log(`✅ 凭证已保存到 ${configPath}`);
+}
+
+/**
+ * 保存额外应用列表
+ */
+export function saveExtraApps(apps: AppCredential[]): void {
+  const configPath = getHomeConfigPath();
+  const existing = readRawConfig(configPath);
+  if (!existing?.appId) {
+    throw new Error('请先配置主应用凭证');
+  }
+  writeFileSync(configPath, JSON.stringify({ ...existing, extraApps: apps }, null, 2), 'utf-8');
 }
 
 /**
@@ -137,7 +155,13 @@ function parseConfigFile(path: string): FeishuConfig | null {
     const content = readFileSync(path, 'utf-8');
     const parsed = JSON.parse(content);
     if (parsed.appId && parsed.appSecret) {
-      return { appId: parsed.appId, appSecret: parsed.appSecret };
+      const config: FeishuConfig = { appId: parsed.appId, appSecret: parsed.appSecret };
+      if (Array.isArray(parsed.extraApps)) {
+        config.extraApps = parsed.extraApps.filter(
+          (a: any) => a && typeof a.appId === 'string' && typeof a.appSecret === 'string',
+        );
+      }
+      return config;
     }
   } catch {
     // 忽略解析错误

@@ -45,7 +45,7 @@ pnpm typecheck    # 类型检查
 
 - **单一职责**: 每个文件/函数只做一件事。`interactive/` 按流程拆分就是典型示例
 - **开闭原则**: 新增 block 类型时扩展 converter 和 uploader 的映射，不改已有分支
-- **依赖倒置**: 业务逻辑依赖抽象接口 (如 `lark.Client` 类型)，不直接构造 SDK 实例
+- **依赖倒置**: 业务逻辑依赖抽象接口 (如 `FeishuApp` 类型)，不直接构造 SDK 实例
 - **高内聚低耦合**: 模块内部自包含，模块间通过明确的导出接口通信；避免循环依赖
 - **DRY**: 相似模式抽公共函数 (如 `createSimpleBlock`、`withRetry`)，但不为只用一次的逻辑建抽象
 
@@ -59,8 +59,9 @@ pnpm typecheck    # 类型检查
 
 ### 飞书 API 注意
 
-- 速率限制 ~3 次/秒，文档内容 API 走 `withRetry` + `RequestQueue`（FIFO 限速队列，300ms/slot）
-- 下载并发由 `withConcurrency` 控制（默认 2 路），wiki 树构建 API 不走限速队列
+- 速率限制 ~3 次/秒/应用，每个 `FeishuApp` 持有独立的 `RequestQueue`（FIFO 限速队列，300ms/slot）
+- 支持多应用并行：`AppPool` round-robin 分配，并发数 = 应用数 × 基础并发数（下载 2，上传 2）
+- wiki 树构建 API 不走限速队列，始终使用主应用
 - 上传采用全量替换: 清空 → 重建，不做增量 diff
 - Mermaid 用文档小组件 (block_type=40)，`component_type_id` = `blk_631fefbbae02400430b8f9f4`
 - 引用容器 (block_type=34, quote_container) 是容器块，子块用嵌套块 API 创建

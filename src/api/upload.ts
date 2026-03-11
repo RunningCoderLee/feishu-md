@@ -1,11 +1,11 @@
-import type * as lark from '@larksuiteoapi/node-sdk';
 import { BLOCK_DATA_FIELDS, BlockType } from '../types/feishu-blocks.js';
 import type {
   FeishuUploadBlock,
   QuoteContainerData,
   TableCellContent,
 } from '../uploader/md-parser.js';
-import { formatApiError, withRetry } from '../utils/api-helpers.js';
+import { formatApiError } from '../utils/api-helpers.js';
+import type { FeishuApp } from './app.js';
 import { getDocumentBlocks } from './blocks.js';
 
 // ============ API 操作 ============
@@ -14,11 +14,11 @@ import { getDocumentBlocks } from './blocks.js';
  * 获取文档根块 ID、子块数量和当前标题
  */
 export async function getDocumentRootInfo(
-  client: lark.Client,
+  app: FeishuApp,
   documentId: string,
 ): Promise<{ rootBlockId: string; childCount: number; title: string }> {
   try {
-    const blocks = await getDocumentBlocks(client, documentId);
+    const blocks = await getDocumentBlocks(app, documentId);
     const pageBlock = blocks.find((item: any) => item.block_type === BlockType.PAGE);
     if (!pageBlock) {
       throw new Error('未找到文档根块');
@@ -49,14 +49,14 @@ export async function getDocumentRootInfo(
  * 更新文档标题（修改 Page Block 的文本内容）
  */
 export async function updateDocumentTitle(
-  client: lark.Client,
+  app: FeishuApp,
   documentId: string,
   rootBlockId: string,
   title: string,
 ): Promise<void> {
   try {
-    const response = await withRetry(() =>
-      client.docx.documentBlock.patch({
+    const response = await app.withRetry(() =>
+      app.client.docx.documentBlock.patch({
         path: {
           document_id: documentId,
           block_id: rootBlockId,
@@ -81,7 +81,7 @@ export async function updateDocumentTitle(
  * 删除文档根块下的所有子块（全量替换前清空）
  */
 export async function clearDocumentBlocks(
-  client: lark.Client,
+  app: FeishuApp,
   documentId: string,
   rootBlockId: string,
   childCount: number,
@@ -89,8 +89,8 @@ export async function clearDocumentBlocks(
   if (childCount <= 0) return;
 
   try {
-    const response = await withRetry(() =>
-      client.docx.documentBlockChildren.batchDelete({
+    const response = await app.withRetry(() =>
+      app.client.docx.documentBlockChildren.batchDelete({
         path: {
           document_id: documentId,
           block_id: rootBlockId,
@@ -114,7 +114,7 @@ export async function clearDocumentBlocks(
  * 创建单个表格块并填充单元格内容（使用创建嵌套块 API，支持超过 9 行的表格）
  */
 async function createTableBlock(
-  client: lark.Client,
+  app: FeishuApp,
   documentId: string,
   parentBlockId: string,
   index: number,
@@ -167,8 +167,8 @@ async function createTableBlock(
     children: cellBlockIds,
   };
 
-  const response = await withRetry(() =>
-    client.docx.documentBlockDescendant.create({
+  const response = await app.withRetry(() =>
+    app.client.docx.documentBlockDescendant.create({
       path: {
         document_id: documentId,
         block_id: parentBlockId,
@@ -191,7 +191,7 @@ async function createTableBlock(
  * quote_container (block_type=34) 是容器块，子块在其 children 中
  */
 async function createQuoteContainerBlock(
-  client: lark.Client,
+  app: FeishuApp,
   documentId: string,
   parentBlockId: string,
   index: number,
@@ -228,8 +228,8 @@ async function createQuoteContainerBlock(
     children: childrenIds,
   };
 
-  const response = await withRetry(() =>
-    client.docx.documentBlockDescendant.create({
+  const response = await app.withRetry(() =>
+    app.client.docx.documentBlockDescendant.create({
       path: {
         document_id: documentId,
         block_id: parentBlockId,
@@ -298,7 +298,7 @@ function summarizeBlock(block: FeishuUploadBlock, index: number): string {
  * 批量创建文档块（每批最多 50 条，表格块单独处理）
  */
 export async function createDocumentBlocks(
-  client: lark.Client,
+  app: FeishuApp,
   documentId: string,
   rootBlockId: string,
   blocks: FeishuUploadBlock[],
@@ -319,8 +319,8 @@ export async function createDocumentBlocks(
       const batchGlobalStart = pendingStartIndex + i;
 
       try {
-        const response = await withRetry(() =>
-          client.docx.documentBlockChildren.create({
+        const response = await app.withRetry(() =>
+          app.client.docx.documentBlockChildren.create({
             path: {
               document_id: documentId,
               block_id: rootBlockId,
@@ -359,7 +359,7 @@ export async function createDocumentBlocks(
     if (block.block_type === BlockType.TABLE && block.table_data) {
       await flushPending();
       try {
-        await createTableBlock(client, documentId, rootBlockId, insertIndex, block.table_data);
+        await createTableBlock(app, documentId, rootBlockId, insertIndex, block.table_data);
       } catch (error) {
         const { row_size, column_size } = block.table_data.property;
         console.error(
@@ -375,7 +375,7 @@ export async function createDocumentBlocks(
       await flushPending();
       try {
         await createQuoteContainerBlock(
-          client,
+          app,
           documentId,
           rootBlockId,
           insertIndex,
