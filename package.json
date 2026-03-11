@@ -63,6 +63,9 @@
     "vitest": "^4.0.18"
   },
   "packageManager": "pnpm@10.27.0",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": ">=16"
   }
