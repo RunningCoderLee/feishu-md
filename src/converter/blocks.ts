@@ -178,13 +178,20 @@ function processChildren(
   depth: number,
 ): void {
   const children = parentBlock.children || [];
+  let orderedIndex = 0;
 
   for (const childId of children) {
     const block = blockMap.get(childId);
     if (!block) continue;
 
+    if (block.block_type === BlockType.ORDERED) {
+      orderedIndex++;
+    } else {
+      orderedIndex = 0;
+    }
+
     // 转换当前块
-    const markdown = convertBlock(block, blockMap, depth);
+    const markdown = convertBlock(block, blockMap, depth, orderedIndex);
     if (markdown) {
       lines.push(markdown);
     }
@@ -206,6 +213,7 @@ function convertBlock(
   block: FeishuBlock,
   blockMap: Map<string, FeishuBlock>,
   depth: number,
+  orderedIndex = 0,
 ): string {
   const blockType = block.block_type;
 
@@ -242,7 +250,7 @@ function convertBlock(
       return `${'  '.repeat(depth)}- ${getTextContent(block)}`;
 
     case BlockType.ORDERED:
-      return `${'  '.repeat(depth)}1. ${getTextContent(block)}`;
+      return `${'  '.repeat(depth)}${orderedIndex || 1}. ${getTextContent(block)}`;
 
     case BlockType.CODE:
       return convertCodeBlock(block);

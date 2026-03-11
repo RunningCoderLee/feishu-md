@@ -3,7 +3,7 @@ import { createFeishuClient } from '../api/client.js';
 import { getDebugDir, isDebug } from '../utils/debug.js';
 import { ensureConfig, executeConfigFlow } from './config.js';
 import { executeDownloadFlow } from './download.js';
-import { executeUploadFlow } from './upload.js';
+import { executeBatchUploadFlow, executeUploadFlow } from './upload.js';
 
 /**
  * 检查是否是用户退出错误
@@ -13,6 +13,25 @@ function isUserExit(error: unknown): boolean {
     return error.name === 'ExitPromptError' || error.message.includes('force closed');
   }
   return false;
+}
+
+/**
+ * 提示用户选择上传模式
+ */
+async function promptUploadMode(): Promise<'single' | 'batch'> {
+  const { uploadMode } = await inquirer.prompt([
+    {
+      type: 'select',
+      name: 'uploadMode',
+      message: '请选择上传方式:',
+      choices: [
+        { name: '📄 上传单个文件', value: 'single' },
+        { name: '📂 批量上传（选择目录）', value: 'batch' },
+      ],
+    },
+  ]);
+
+  return uploadMode;
 }
 
 /**
@@ -54,7 +73,12 @@ export async function runInteractive() {
     const client = createFeishuClient(config.appId, config.appSecret);
 
     if (actionMode === 'upload') {
-      await executeUploadFlow(client);
+      const uploadMode = await promptUploadMode();
+      if (uploadMode === 'single') {
+        await executeUploadFlow(client);
+      } else {
+        await executeBatchUploadFlow(client);
+      }
       return;
     }
 

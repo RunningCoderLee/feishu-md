@@ -11,7 +11,8 @@
 
 ### 📤 上传（Markdown → 飞书）
 
-- 读取 front-matter 中的 `feishu_doc_id` 自动定位目标文档
+- 单文件上传：读取 front-matter 中的 `feishu_doc_id` 自动定位目标文档
+- 批量上传：选择目录递归扫描 `.md` 文件，checkbox 多选后并发上传
 - 全量替换策略：清空远端内容后重建
 - 支持 `feishu-image:token` 图片占位符回写
 
@@ -72,7 +73,9 @@ feishu-md --debug
    - 如果文档包含子文档，选择下载方式（仅当前 / 保持层级 / 平铺）
    - 输入存储路径
 4. **上传流程**：
-   - 输入本地 Markdown 文件路径
+   - 选择上传方式：**单文件** / **批量上传（选择目录）**
+   - 单文件：输入 Markdown 文件路径
+   - 批量：输入目录路径 → 递归扫描 `.md` 文件 → checkbox 多选要上传的文件
    - 自动从 front-matter 读取 `feishu_doc_id`，或手动输入目标文档链接（支持 `/docx/` 和 `/wiki/` 链接）
    - 全量替换远端文档内容
 

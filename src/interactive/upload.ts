@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, relative, resolve } from 'node:path';
 import inquirer from 'inquirer';
 import type { createFeishuClient } from '../api/client.js';
 import {
@@ -10,10 +10,13 @@ import {
 } from '../api/upload.js';
 import { getWikiNodeInfo } from '../api/wiki.js';
 import { parseDocumentId } from '../parser/url-parser.js';
+import type { FeishuUploadBlock } from '../uploader/md-parser.js';
 import { parseMarkdownToBlocks } from '../uploader/md-parser.js';
+import { withConcurrency } from '../utils/concurrency.js';
 import { dumpDebugJson, isDebug } from '../utils/debug.js';
 import { parseFrontMatter } from '../utils/front-matter.js';
 import { stripShellEscapes } from '../utils/path.js';
+import { ProgressBar } from '../utils/progress.js';
 
 // ============ Prompt ============
 
@@ -109,10 +112,70 @@ async function resolveTitle(
   return null;
 }
 
-// ============ 主入口 ============
+// ============ 文档 ID 解析 ============
 
 /**
- * 执行上传流程
+ * 从 front-matter 或用户输入解析文档 ID
+ */
+async function resolveDocumentId(
+  client: ReturnType<typeof createFeishuClient>,
+  frontMatter: Record<string, unknown>,
+): Promise<string> {
+  const docId = typeof frontMatter.feishu_doc_id === 'string' ? frontMatter.feishu_doc_id : null;
+  if (docId) return docId;
+
+  console.log('⚠️  未从 front-matter 读取到 feishu_doc_id');
+  const url = await promptUploadDocumentUrl();
+  const token = parseDocumentId(url);
+
+  if (url.includes('/wiki/')) {
+    console.log('');
+    console.log('🔍 从知识库节点获取文档信息...');
+    const nodeInfo = await getWikiNodeInfo(client, token);
+    if (nodeInfo.objType !== 'docx' && nodeInfo.objType !== 'doc') {
+      throw new Error(`不支持的文档类型: ${nodeInfo.objType}，仅支持 docx 类型的文档`);
+    }
+    console.log(`   文档标题: ${nodeInfo.title}`);
+    return nodeInfo.objToken;
+  }
+  return token;
+}
+
+// ============ 单文件上传核心 ============
+
+/**
+ * 上传单个文件到飞书文档（供单文件和批量模式共用）
+ */
+async function uploadSingleDocument(
+  client: ReturnType<typeof createFeishuClient>,
+  documentId: string,
+  uploadBlocks: FeishuUploadBlock[],
+  localTitle: string | null,
+  fileBaseName: string,
+): Promise<void> {
+  const {
+    rootBlockId,
+    childCount,
+    title: remoteTitle,
+  } = await getDocumentRootInfo(client, documentId);
+
+  const finalTitle = await resolveTitle(localTitle, fileBaseName, remoteTitle);
+  if (finalTitle && finalTitle !== remoteTitle) {
+    console.log(`📝 更新文档标题: ${finalTitle}`);
+    await updateDocumentTitle(client, documentId, rootBlockId, finalTitle);
+  }
+
+  await clearDocumentBlocks(client, documentId, rootBlockId, childCount);
+
+  if (uploadBlocks.length > 0) {
+    await createDocumentBlocks(client, documentId, rootBlockId, uploadBlocks);
+  }
+}
+
+// ============ 主入口：单文件上传 ============
+
+/**
+ * 执行单文件上传流程
  */
 export async function executeUploadFlow(
   client: ReturnType<typeof createFeishuClient>,
@@ -128,25 +191,7 @@ export async function executeUploadFlow(
   }
 
   const { frontMatter, body } = parseFrontMatter(content);
-  let documentId = typeof frontMatter.feishu_doc_id === 'string' ? frontMatter.feishu_doc_id : null;
-  if (!documentId) {
-    console.log('⚠️  未从 front-matter 读取到 feishu_doc_id');
-    const url = await promptUploadDocumentUrl();
-    const token = parseDocumentId(url);
-
-    if (url.includes('/wiki/')) {
-      console.log('');
-      console.log('🔍 从知识库节点获取文档信息...');
-      const nodeInfo = await getWikiNodeInfo(client, token);
-      if (nodeInfo.objType !== 'docx' && nodeInfo.objType !== 'doc') {
-        throw new Error(`不支持的文档类型: ${nodeInfo.objType}，仅支持 docx 类型的文档`);
-      }
-      console.log(`   文档标题: ${nodeInfo.title}`);
-      documentId = nodeInfo.objToken;
-    } else {
-      documentId = token;
-    }
-  }
+  const documentId = await resolveDocumentId(client, frontMatter);
 
   const { blocks: uploadBlocks, title: localTitle } = parseMarkdownToBlocks(body);
 
@@ -158,30 +203,245 @@ export async function executeUploadFlow(
 
   console.log('');
   console.log('🔍 获取远端文档信息...');
-  const {
-    rootBlockId,
-    childCount,
-    title: remoteTitle,
-  } = await getDocumentRootInfo(client, documentId);
-
-  const finalTitle = await resolveTitle(localTitle, fileBaseName, remoteTitle);
-  if (finalTitle && finalTitle !== remoteTitle) {
-    console.log(`📝 更新文档标题: ${finalTitle}`);
-    await updateDocumentTitle(client, documentId, rootBlockId, finalTitle);
-  }
-
-  console.log('🧹 清空远端文档内容...');
-  await clearDocumentBlocks(client, documentId, rootBlockId, childCount);
-
-  if (uploadBlocks.length > 0) {
-    console.log(`📤 上传内容中... 共 ${uploadBlocks.length} 个 block`);
-    await createDocumentBlocks(client, documentId, rootBlockId, uploadBlocks);
-  } else {
-    console.log('ℹ️  本地文档无可上传内容，已将远端文档清空');
-  }
+  await uploadSingleDocument(client, documentId, uploadBlocks, localTitle, fileBaseName);
 
   console.log('');
   console.log('✅ 上传完成！');
   console.log(`📄 本地文件: ${absolutePath}`);
   console.log(`🆔 文档 ID: ${documentId}`);
+}
+
+// ============ 批量上传 ============
+
+const UPLOAD_CONCURRENCY = 2;
+
+/**
+ * 递归扫描目录下所有 .md 文件
+ */
+function scanMarkdownFiles(dir: string): string[] {
+  const results: string[] = [];
+
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...scanMarkdownFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      results.push(fullPath);
+    }
+  }
+
+  return results.sort();
+}
+
+/**
+ * 提示用户输入目录路径
+ */
+async function promptDirectoryPath(): Promise<string> {
+  const { dirPath } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'dirPath',
+      message: '请输入 Markdown 文件所在目录:',
+      validate: (input: string) => {
+        if (!input.trim()) return '目录路径不能为空';
+        try {
+          const stat = statSync(resolve(stripShellEscapes(input)));
+          if (!stat.isDirectory()) return '路径不是一个目录';
+          return true;
+        } catch {
+          return '目录不存在';
+        }
+      },
+      transformer: (input: string) => {
+        const stripped = stripShellEscapes(input.trim());
+        if (stripped) {
+          return `${input}  →  ${resolve(stripped)}`;
+        }
+        return input;
+      },
+    },
+  ]);
+
+  return resolve(stripShellEscapes(dirPath));
+}
+
+/**
+ * 提示用户从扫描到的文件列表中选择要上传的文件
+ */
+async function promptSelectFiles(files: string[], baseDir: string): Promise<string[]> {
+  const choices = files.map((f) => {
+    const rel = relative(baseDir, f);
+    const content = readFileSync(f, 'utf-8');
+    const { frontMatter } = parseFrontMatter(content);
+    const hasDocId = typeof frontMatter.feishu_doc_id === 'string';
+    const tag = hasDocId ? '✅' : '⚠️ ';
+    return {
+      name: `${tag} ${rel}`,
+      value: f,
+      checked: true,
+    };
+  });
+
+  console.log('');
+  console.log('📋 扫描结果（✅ = 已有 feishu_doc_id，⚠️  = 需手动输入目标文档）:');
+
+  const { selected } = await inquirer.prompt([
+    {
+      type: 'checkbox',
+      name: 'selected',
+      message: '请选择要上传的文件:',
+      choices,
+      validate: (input: string[]) => (input.length > 0 ? true : '请至少选择一个文件'),
+    },
+  ]);
+
+  return selected;
+}
+
+/**
+ * 批量上传的准备结果（阶段一产出，阶段二消费）
+ */
+interface BatchUploadItem {
+  absolutePath: string;
+  documentId: string;
+  rootBlockId: string;
+  childCount: number;
+  uploadBlocks: FeishuUploadBlock[];
+  finalTitle: string | null;
+  remoteTitle: string;
+}
+
+/**
+ * 执行批量上传流程
+ */
+export async function executeBatchUploadFlow(
+  client: ReturnType<typeof createFeishuClient>,
+): Promise<void> {
+  const dirPath = await promptDirectoryPath();
+  const allFiles = scanMarkdownFiles(dirPath);
+
+  if (allFiles.length === 0) {
+    console.log('');
+    console.log('ℹ️  该目录下没有找到 .md 文件');
+    return;
+  }
+
+  console.log(`   找到 ${allFiles.length} 个 .md 文件`);
+
+  const selectedFiles = await promptSelectFiles(allFiles, dirPath);
+  console.log('');
+  console.log(`📝 已选择 ${selectedFiles.length} 个文件，开始准备...`);
+
+  // 阶段一：顺序准备（解析文件、解析文档 ID、解析标题）
+  const items: BatchUploadItem[] = [];
+  const skipped: Array<{ path: string; reason: string }> = [];
+
+  for (const filePath of selectedFiles) {
+    const rel = relative(dirPath, filePath);
+    console.log('');
+    console.log(`── 处理: ${rel}`);
+
+    let content: string;
+    try {
+      content = readFileSync(filePath, 'utf-8');
+    } catch {
+      skipped.push({ path: rel, reason: '读取失败' });
+      console.log('   ⏭️  读取文件失败，跳过');
+      continue;
+    }
+
+    const { frontMatter, body } = parseFrontMatter(content);
+
+    let documentId: string;
+    try {
+      documentId = await resolveDocumentId(client, frontMatter);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      skipped.push({ path: rel, reason: msg });
+      console.log(`   ⏭️  ${msg}，跳过`);
+      continue;
+    }
+
+    const { blocks: uploadBlocks, title: localTitle } = parseMarkdownToBlocks(body);
+    const fileBaseName = basename(filePath, '.md');
+
+    if (isDebug()) {
+      dumpDebugJson(`upload-blocks-${documentId}.json`, uploadBlocks);
+    }
+
+    // 获取远端文档信息并解析标题（需交互，必须在顺序阶段完成）
+    console.log('   🔍 获取远端文档信息...');
+    const {
+      rootBlockId,
+      childCount,
+      title: remoteTitle,
+    } = await getDocumentRootInfo(client, documentId);
+
+    const finalTitle = await resolveTitle(localTitle, fileBaseName, remoteTitle);
+
+    items.push({
+      absolutePath: filePath,
+      documentId,
+      rootBlockId,
+      childCount,
+      uploadBlocks,
+      finalTitle,
+      remoteTitle,
+    });
+  }
+
+  if (items.length === 0) {
+    console.log('');
+    console.log('ℹ️  没有可上传的文件');
+    return;
+  }
+
+  // 阶段二：并发上传
+  console.log('');
+  console.log(`📤 开始上传 ${items.length} 个文件...`);
+  console.log('');
+
+  const startTime = Date.now();
+  const bar = new ProgressBar(items.length);
+  const errors: Array<{ path: string; error: string }> = [];
+
+  await withConcurrency(items, UPLOAD_CONCURRENCY, async (item) => {
+    const rel = relative(dirPath, item.absolutePath);
+    try {
+      if (item.finalTitle && item.finalTitle !== item.remoteTitle) {
+        await updateDocumentTitle(client, item.documentId, item.rootBlockId, item.finalTitle);
+      }
+      await clearDocumentBlocks(client, item.documentId, item.rootBlockId, item.childCount);
+      if (item.uploadBlocks.length > 0) {
+        await createDocumentBlocks(client, item.documentId, item.rootBlockId, item.uploadBlocks);
+      }
+      bar.tick(rel);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      errors.push({ path: rel, error: msg });
+      bar.skip(rel, '上传失败');
+    }
+  });
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  bar.done();
+
+  // 汇总
+  console.log('');
+  console.log(`✅ 批量上传完成！耗时 ${elapsed}s`);
+  console.log(`   成功: ${items.length - errors.length}/${items.length}`);
+
+  if (skipped.length > 0) {
+    console.log(`   跳过: ${skipped.length} 个文件`);
+    for (const { path, reason } of skipped) {
+      console.log(`     ⏭️  ${path} (${reason})`);
+    }
+  }
+
+  if (errors.length > 0) {
+    console.log(`   失败: ${errors.length} 个文件`);
+    for (const { path, error } of errors) {
+      console.log(`     ❌ ${path}: ${error}`);
+    }
+  }
 }
