@@ -12,6 +12,7 @@ import { fetchDocumentMarkdown } from '../converter/markdown.js';
 import { parseDocumentId } from '../parser/url-parser.js';
 import { DOWNLOAD_CONCURRENCY, withConcurrency } from '../utils/concurrency.js';
 import { writeFile } from '../utils/file.js';
+import { stripShellEscapes } from '../utils/path.js';
 import { ProgressBar } from '../utils/progress.js';
 
 // ============ 工具函数 ============
@@ -192,8 +193,9 @@ async function promptOutputPath(mode: 'single' | 'recursive' | 'flat'): Promise<
     },
   ]);
 
-  saveLastOutputPath(outputPath);
-  return outputPath;
+  const cleanPath = stripShellEscapes(outputPath);
+  saveLastOutputPath(cleanPath);
+  return cleanPath;
 }
 
 // ============ 下载子流程 ============

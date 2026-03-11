@@ -13,6 +13,7 @@ import { parseDocumentId } from '../parser/url-parser.js';
 import { parseMarkdownToBlocks } from '../uploader/md-parser.js';
 import { dumpDebugJson, isDebug } from '../utils/debug.js';
 import { parseFrontMatter } from '../utils/front-matter.js';
+import { stripShellEscapes } from '../utils/path.js';
 
 // ============ Prompt ============
 
@@ -35,7 +36,7 @@ async function promptMarkdownPath(): Promise<string> {
     },
   ]);
 
-  return markdownPath;
+  return stripShellEscapes(markdownPath);
 }
 
 /**
